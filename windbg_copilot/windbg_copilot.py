@@ -86,7 +86,7 @@ def get_characters_after_first_whitespace(string):
 PromptTemplate = '''
 You are a debugging assistant, integrated to WinDbg.
 
-Commands that the user execute are forwarded to you. You can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Only suggest one command at a time!
+Debugger outputs are forwarded to you. You can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Only suggest one command at a time!
 
 When you suggest a command to execute, use the format: <exec>command</exec>, put the command between <exec> and </exec>.
 
@@ -95,7 +95,7 @@ When you suggest a command to execute, use the format: <exec>command</exec>, put
 The high level description of the problem provided by the user is:
 <description>
 '''
-debug_extension = ""
+debugger_extension = ""
 conversation = []
 # prompt = "You are a debugging assistant, integrated to WinDbg."
 # promptTokens = 0
@@ -107,10 +107,12 @@ def UpdatePrompt(description):
     # global conversation
     # conversation.append({"role": "system", "content": PromptTemplate + " " + description})
     global prompt
-    prompt = PromptTemplate.replace("<debug extension>",debug_extension)
+    prompt = PromptTemplate.replace("<debug extension>",debugger_extension)
     prompt = prompt.replace("<description>",description)
     global promptTokens
     promptTokens = num_tokens_from_string(prompt)
+    global conversation
+    conversation = []
     return SendCommand(None)
 
 
@@ -177,30 +179,14 @@ def SendCommand(text):
     print(text)
     return text
 
-def chat(last_Copilot_output):
-    # executed_commands = set()
+def auto(last_Copilot_output):
     while True:
         pattern = r'<exec>(.*?)<\/exec>'
         matches = re.findall(pattern, last_Copilot_output)
-        # pattern = r'"(.*?)"'
-        # matches += re.findall(pattern, last_Copilot_output)
-        # pattern = r'\'(.*?)\''
-        # matches += re.findall(pattern, last_Copilot_output)
-        # pattern = r'`(.*?)`'
-        # matches += re.findall(pattern, last_Copilot_output)
-        # pattern = r'The\s+(.*?)\s+command'
-        # matches += re.findall(pattern, last_Copilot_output)
-        # pattern = r'```\n(.*?)\n```'
-        # matches += re.findall(pattern, last_Copilot_output)
         if matches:
-            matches_len = len(matches)
-            match_index = 0
+            command_nums = len(matches)
+            unexecuted_times = 0
             for match in matches:
-                # if match in executed_commands:
-                #     match_index += 1
-                #     print("\n"+match+" had been executed.")
-                #     continue
-                # else:
                 confirm = input("\nDo you want to execute command: " + match + "? Y or N: ")
                 if confirm == "Y" or confirm == "y" or confirm == "":
                     log_thread("execute command:"+match)
@@ -208,18 +194,15 @@ def chat(last_Copilot_output):
                     if last_debugger_output == "timeout":
                         print(match+" timeout")
                         break
-                    # executed_commands.add(match)
                     last_Copilot_output = SendCommand(last_debugger_output)
                     break
-                    # print("\n" + last_Copilot_output)
                 else:
-                    match_index += 1
+                    unexecuted_times += 1
                     continue
-            if match_index == matches_len:
+            if unexecuted_times == command_nums:
                 break
         else:
             print("\nNo more command suggested.")
-            # SendCommand("summarize.")
             break
 
 class ReaderThread(threading.Thread):
@@ -316,6 +299,7 @@ def start():
                 openai.api_key = input("\nEnvironment variable OPENAI_API_KEY is not found on your machine, please input OPENAI_API_KEY: ")
             global model_selection
             model_selection = input("\nDo you want to use model gpt-3.5-turbo-16k or model gpt-4? 1 for gpt-3.5-turbo-16k, 2 for gpt-4: ")
+            log_thread('model_selection:'+model_selection)
         elif api_selection == '2':
             openai.api_type = "azure"
             openai.api_base = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -330,7 +314,7 @@ def start():
             if azure_openai_deployment == None:
                 azure_openai_deployment = input("\nEnvironment variable AZURE_OPENAI_DEPLOYMENT is not found on your machine, please input AZURE_OPENAI_DEPLOYMENT: ")
     log_thread('api_selection:'+api_selection)
-    log_thread('model_selection:'+model_selection)
+    
     WinDbg_path = os.getenv("WinDbg_PATH")
     if WinDbg_path == None:
         WinDbg_path = input("\nEnvironment variable WinDbg_PATH is not found on your machine, please input WinDbg installation path which contains WinDbg.exe: ")
@@ -394,14 +378,14 @@ def start():
     results = dbg("||")
     log_thread('dump:'+results)
 
-    user_input = input("\nDo you want to load any debug extensions? Debug extension dll path: ")
-    log_thread("debug extension dll path:"+user_input)
+    user_input = input("\nDo you want to load any debugger extensions? Debugger extension dll path: ")
+    log_thread("debugger extension dll path:"+user_input)
     last_debugger_output = dbg(".load " + user_input)
     if last_debugger_output == "timeout":
         print(user_input+" timeout")
     else:
-        global debug_extension
-        debug_extension = "Debug extension " + user_input + " has been loaded."
+        global debugger_extension
+        debugger_extension = "Debug extension " + user_input + " has been loaded."
 
     user_input = input("\nDo you want to add any symbol file path? Symbol file path: ")
     log_thread("symbol file path:"+user_input)
@@ -414,9 +398,9 @@ Hello, I am WinDbg Copilot, I'm here to assist you.
 
 The given commands are used to interact with WinDbg Copilot, a tool that utilizes the OpenAI model for assistance with debugging. The commands include:
 
-    !chat: Chat mode, conversation will be sent to OpenAI ChatGPT model, ChatGPT can reply with simple explanations or suggest a single command to execute to further analyze the problem. User will decide to execute the suggested command or not.
-    !command: Command mode, user inputs are sent to debugger and debugger outputs will be sent to OpenAI ChatGPT model, ChatGPT can reply with simple explanations or suggest a single command to execute to further analyze the problem.
-    !problem <problem statement>: Updates the problem description by providing a new problem statement.
+    !auto: auto mode, user provides a problem description, ChatGPT can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Ask user to execute the suggested command or not.
+    !chat: chat mode, user inputs are forwarded to ChatGPT, ChatGPT can reply with simple answers or suggesting a single command to execute to further analyze the problem. User will decide to execute the suggested command or not.
+    !command: command mode, user inputs are forwarded to debugger like manual debugging in WinDbg.
     !quit or !q or q or qq: Terminates the debugger session.
     !help or !h: Provides help information.
 
@@ -424,57 +408,72 @@ Note: WinDbg Copilot requires an active Internet connection to function properly
     '''
     
     print(help_msg)
-
-    problem_description = input("Problem description: ")
-    log_thread("Problem description:"+problem_description)
-    last_Copilot_output = UpdatePrompt(problem_description)
-    chat(last_Copilot_output)
-    
+ 
     last_debugger_output = ""
     # last_Copilot_output = ""
-    chat_mode = True
+    mode = "auto"
     while True:
         # Prompt the user for input
-        
-        # speak("Please enter your input.")
-        if chat_mode:
+        if mode == "auto":
+            problem_description = input("Problem description: ")
+            log_thread("Problem description:"+problem_description)
+            last_Copilot_output = UpdatePrompt(problem_description)
+            auto(last_Copilot_output)
+            mode = "chat"
+        elif mode == "chat":
             user_input = input("\n"+'Chat> ')
-        else:
+            if user_input == "!auto":
+                mode = "auto"
+                print("\nauto mode.")
+                continue
+            elif user_input == "!chat":
+                mode = "chat"
+                print("\nchat mode.")
+                continue
+            elif user_input == "!command":
+                mode = "command"
+                print("\ncommand mode.")
+                continue
+            elif user_input == "!quit" or user_input == "!q" or user_input == "q" or user_input == "qq":
+                text = "Goodbye, have a nice day!"
+                print(text)
+                dbg("qq")
+                break
+            elif user_input == "!help" or user_input == "!h":
+                print(help_msg)
+                continue
+            SendCommand(user_input)
+        elif mode == "command":
             user_input = input("\n"+'Command> ')
-        log_thread("user_input:"+user_input)
-        trim_user_input = get_characters_after_first_whitespace(user_input)
-        
-        if user_input == "!chat":
-            chat_mode = True
-            print("Chat mode, conversation will be sent to OpenAI ChatGPT model, ChatGPT can reply with simple explanations or suggest a single command to execute to further analyze the problem. User will decide to execute the suggested command or not.")
-            continue
-        elif user_input == "!command":
-            chat_mode = False
-            print("Command mode, user inputs are sent to debugger and debugger outputs will be sent to OpenAI ChatGPT model, ChatGPT can reply with simple explanations or suggest a single command to execute to further analyze the problem.")
-            continue
-        elif user_input.startswith("!problem "):
-            last_Copilot_output = UpdatePrompt(trim_user_input)
-            # print(last_Copilot_output)
-            continue
-        elif user_input == "!quit" or user_input == "!q" or user_input == "q" or user_input == "qq":
-            text = "Goodbye, have a nice day!"
-            print(text)
-            dbg("qq")
-            break
-        elif user_input == "!help" or user_input == "!h":
-            print(help_msg)
-            continue
-
-        if chat_mode:
-            last_Copilot_output=SendCommand(user_input)
-            chat(last_Copilot_output)
-        else:
-            # Send the user input to cdb.exe
+            if user_input == "!auto":
+                mode = "auto"
+                print("\nauto mode.")
+                continue
+            elif user_input == "!chat":
+                mode = "chat"
+                print("\nchat mode.")
+                continue
+            elif user_input == "!command":
+                mode = "command"
+                print("\ncommand mode.")
+                continue
+            elif user_input == "!quit" or user_input == "!q" or user_input == "q" or user_input == "qq":
+                text = "Goodbye, have a nice day!"
+                print(text)
+                dbg("qq")
+                break
+            elif user_input == "!help" or user_input == "!h":
+                print(help_msg)
+                continue
             last_debugger_output = dbg(user_input)
             if last_debugger_output == "timeout":
                 print(user_input+" timeout")
                 continue
-            last_Copilot_output = SendCommand(last_debugger_output)
+        log_thread("user_input:"+user_input)
+        # trim_user_input = get_characters_after_first_whitespace(user_input)
+        
+
+
     log_thread('process exit') 
 
 if __name__ == "__main__":
