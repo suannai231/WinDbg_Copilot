@@ -9,6 +9,10 @@ import logging
 import logging.handlers
 import threading
 import tiktoken
+import uuid
+
+def generate_uuid():
+    return uuid.uuid4()
 
 def add_log(log_message):
     root_logger.info(log_message)
@@ -45,7 +49,7 @@ class BSDLogFormatter(logging.Formatter):
     def format(self, record):
         msg = super().format(record)
         msg = msg.replace('%', '%%')  # Escape '%' characters
-        return f'WinDbg_Copilot <{self.get_priority(record)}> {self.get_timestamp()} {msg}'
+        return f'WinDbg_Copilot <{self.get_priority(record)}> {session_uuid} {self.get_timestamp()} {msg}'
 
     @staticmethod
     def get_timestamp():
@@ -86,9 +90,12 @@ Commands that the user execute are forwarded to you. You can reply with simple e
 
 When you suggest a command to execute, use the format: <exec>command</exec>, put the command between <exec> and </exec>.
 
-The high level description of the problem provided by the user is:
-'''
+<debug extension>
 
+The high level description of the problem provided by the user is:
+<description>
+'''
+debug_extension = ""
 conversation = []
 # prompt = "You are a debugging assistant, integrated to WinDbg."
 # promptTokens = 0
@@ -97,15 +104,20 @@ def UpdatePrompt(description):
     # global promptTokens
     # prompt = PromptTemplate+description
     # promptTokens = num_tokens_from_string(prompt)
-    global conversation
-    conversation.append({"role": "system", "content": PromptTemplate + " " + description})
+    # global conversation
+    # conversation.append({"role": "system", "content": PromptTemplate + " " + description})
+    global prompt
+    prompt = PromptTemplate.replace("<debug extension>",debug_extension)
+    prompt = prompt.replace("<description>",description)
+    global promptTokens
+    promptTokens = num_tokens_from_string(prompt)
     return SendCommand(None)
 
 
 def SendCommand(text):
-    # global prompt
-    # if prompt == None:
-    #     return
+    global prompt
+    if prompt == None:
+        return
     # global api_selection
     # global azure_openai_deployment
     global conversation
@@ -114,35 +126,44 @@ def SendCommand(text):
         conversation.append({"role": "user", "content": text})
 
     max_response_tokens = 250
-    if api_selection == "1":
+    if api_selection == "1" and model_selection == "1":
         tokenLimit = 16384
-    elif api_selection == "2":
+    else:
         tokenLimit = 8192
-    tokenCount = num_tokens_from_messages(conversation)
+    tokenCount = num_tokens_from_messages(conversation) + promptTokens
 
-    while tokenCount + max_response_tokens >= tokenLimit and len(conversation) > 1:
-        if len(conversation) == 2:
-            while num_tokens_from_messages(conversation) + max_response_tokens > tokenLimit:
-                content_len = len(conversation[1]["content"])
-                conversation[1]["content"] = conversation[1]["content"][:int(content_len*0.9)]
-        else:
-            del conversation[1]
-        tokenCount = num_tokens_from_messages(conversation)
-    
+    del_times = 0
+    conv_len = len(conversation)
+    while tokenCount > tokenLimit and len(conversation) > 0:
+        # if len(conversation) == 2:
+        #     while num_tokens_from_messages(conversation) + max_response_tokens > tokenLimit:
+        #         content_len = len(conversation[1]["content"])
+        #         conversation[1]["content"] = conversation[1]["content"][:int(content_len*0.9)]
+        # else:
+        del_times += 1
+        del conversation[0]
+        tokenCount = num_tokens_from_messages(conversation) + promptTokens
+    if del_times > 0:
+        print("\n\nTokenLimit " + str(tokenLimit) + " has reached, " + str(del_times) + "out of " + str(conv_len) + " messages deleted.")
+
+    actualConversation = []
+    actualConversation.append({"role": "system", "content": prompt})
+    actualConversation.extend(conversation)
+
     print("\nThinking...\n")
 
     try:
         if api_selection == '1':
             response=openai.ChatCompletion.create(
-            model="gpt-4" if model_selection == '2' else "gpt-3.5-turbo-16k-0613",
-            messages = conversation,
+            model="gpt-4" if model_selection == '2' else "gpt-3.5-turbo-16k",
+            messages = actualConversation,
             max_tokens=max_response_tokens,
             temperature=0
             )
         elif api_selection == '2':
             response=openai.ChatCompletion.create(
             engine = azure_openai_deployment,
-            messages = conversation,
+            messages = actualConversation,
             max_tokens=max_response_tokens,
             temperature=0
             )
@@ -152,7 +173,7 @@ def SendCommand(text):
         return str(e)
 
     text = response.choices[0].message.content.strip()
-    conversation.append({"role": "assistant", "content": text})
+    # conversation.append({"role": "assistant", "content": text})
     print(text)
     return text
 
@@ -181,7 +202,6 @@ def chat(last_Copilot_output):
                 #     continue
                 # else:
                 confirm = input("\nDo you want to execute command: " + match + "? Y or N: ")
-                print("\n")
                 if confirm == "Y" or confirm == "y" or confirm == "":
                     log_thread("execute command:"+match)
                     last_debugger_output = dbg(match)
@@ -198,8 +218,8 @@ def chat(last_Copilot_output):
             if match_index == matches_len:
                 break
         else:
-            print("\nNo command suggested.")
-            # last_Copilot_output = SendCommand(last_debugger_output)
+            print("\nNo more command suggested.")
+            # SendCommand("summarize.")
             break
 
 class ReaderThread(threading.Thread):
@@ -257,7 +277,6 @@ def get_results():
         if int(elapsed_time) > 120:
             while True:
                 wait = input("\nFunction get_results timeout 120 seconds, do you want to wait longer? Y or N: ")
-                print("\n")
                 if wait == 'N' or wait == 'n':
                     return "timeout"
                 elif wait == 'Y' or wait == 'y' or wait == '':
@@ -283,6 +302,9 @@ def dbg(command):
         return get_results()
 
 def start():
+    global session_uuid
+    session_uuid = generate_uuid()
+
     log_thread('process start')
 
     global api_selection
@@ -293,7 +315,7 @@ def start():
             if openai.api_key == None:
                 openai.api_key = input("\nEnvironment variable OPENAI_API_KEY is not found on your machine, please input OPENAI_API_KEY: ")
             global model_selection
-            model_selection = input("\nDo you want to use model gpt-3.5-turbo-16k-0613 or model gpt-4? 1 for gpt-3.5-turbo-16k-0613, 2 for gpt-4: ")
+            model_selection = input("\nDo you want to use model gpt-3.5-turbo-16k or model gpt-4? 1 for gpt-3.5-turbo-16k, 2 for gpt-4: ")
         elif api_selection == '2':
             openai.api_type = "azure"
             openai.api_base = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -323,7 +345,6 @@ def start():
     open_type = ''
     while open_type != '1' and open_type != '2':
         open_type = input("\nDo you want to open dump/trace file or connect to remote debugger? 1 for dump/trace file, 2 for remote debugger: ")
-
         if open_type == '1':
             # print("\nPlease enter your memory dump file path, only *.dmp or *.run files are supported")
             # speak("Please enter your memory dump file path.")
@@ -374,17 +395,15 @@ def start():
     log_thread('dump:'+results)
 
     user_input = input("\nDo you want to load any debug extensions? Debug extension dll path: ")
-    print("\n")
     log_thread("debug extension dll path:"+user_input)
     last_debugger_output = dbg(".load " + user_input)
     if last_debugger_output == "timeout":
         print(user_input+" timeout")
     else:
-        global PromptTemplate
-        PromptTemplate += "\ndebug extension " + user_input + " has been loaded."
+        global debug_extension
+        debug_extension = "Debug extension " + user_input + " has been loaded."
 
     user_input = input("\nDo you want to add any symbol file path? Symbol file path: ")
-    print("\n")
     log_thread("symbol file path:"+user_input)
     last_debugger_output = dbg(".sympath+\"" + user_input + "\"")
     if last_debugger_output == "timeout":
