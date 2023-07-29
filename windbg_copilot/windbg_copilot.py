@@ -86,7 +86,7 @@ def get_characters_after_first_whitespace(string):
 PromptTemplate = '''
 You are a debugging assistant, integrated to WinDbg.
 
-Debugger outputs are forwarded to you. You can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Only suggest one command at a time!
+Commands that the user execute and debugger outputs are forwarded to you. You can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Only suggest one command at a time!
 
 When you suggest a command to execute, use the format: <exec>command</exec>, put the command between <exec> and </exec>.
 
@@ -132,7 +132,7 @@ def SendCommand(text):
         tokenLimit = 16384
     else:
         tokenLimit = 8192
-    tokenCount = num_tokens_from_messages(conversation) + promptTokens
+    tokenCount = num_tokens_from_messages(conversation) + promptTokens + max_response_tokens
 
     del_times = 0
     conv_len = len(conversation)
@@ -144,9 +144,9 @@ def SendCommand(text):
         # else:
         del_times += 1
         del conversation[0]
-        tokenCount = num_tokens_from_messages(conversation) + promptTokens
+        tokenCount = num_tokens_from_messages(conversation) + promptTokens + max_response_tokens
     if del_times > 0:
-        print("\n\nTokenLimit " + str(tokenLimit) + " has reached, " + str(del_times) + "out of " + str(conv_len) + " messages deleted.")
+        print("\n\nTokenLimit " + str(tokenLimit) + " has reached, " + str(del_times) + " out of " + str(conv_len) + " messages deleted.")
 
     actualConversation = []
     actualConversation.append({"role": "system", "content": prompt})
@@ -160,24 +160,45 @@ def SendCommand(text):
             model="gpt-4" if model_selection == '2' else "gpt-3.5-turbo-16k",
             messages = actualConversation,
             max_tokens=max_response_tokens,
-            temperature=0
+            temperature=0,
+            stream=True
             )
         elif api_selection == '2':
             response=openai.ChatCompletion.create(
             engine = azure_openai_deployment,
             messages = actualConversation,
             max_tokens=max_response_tokens,
-            temperature=0
+            temperature=0,
+            stream=True
             )
     except Exception as e:
         print(str(e))
         log_thread("exception:"+str(e))
         return str(e)
 
-    text = response.choices[0].message.content.strip()
+    # text = response.choices[0].message.content.strip()
     # conversation.append({"role": "assistant", "content": text})
-    print(text)
-    return text
+    # print(text)
+
+    # create variables to collect the stream of chunks
+    # collected_chunks = []
+    collected_messages = []
+    # iterate through the stream of events
+    for chunk in response:
+        # chunk_time = time.time() - start_time  # calculate the time delay of the chunk
+        # collected_chunks.append(chunk)  # save the event response
+        chunk_message = chunk['choices'][0]['delta']  # extract the message
+        collected_messages.append(chunk_message)  # save the message
+        print(chunk_message.get('content', ''), end='')  # print the delay and text
+
+    print("\n")
+    # print the time delay and text received
+    # print(f"Full response received {chunk_time:.2f} seconds after request")
+    full_reply_content = ''.join([m.get('content', '') for m in collected_messages])
+    conversation.append({"role": "assistant", "content": full_reply_content})
+    # print(f"Full conversation received: {full_reply_content}")
+
+    return full_reply_content
 
 def auto(last_Copilot_output):
     while True:
@@ -445,6 +466,7 @@ Note: WinDbg Copilot requires an active Internet connection to function properly
             SendCommand(user_input)
         elif mode == "command":
             user_input = input("\n"+'Command> ')
+            print("\n")
             if user_input == "!auto":
                 mode = "auto"
                 print("\nauto mode.")
@@ -469,6 +491,7 @@ Note: WinDbg Copilot requires an active Internet connection to function properly
             if last_debugger_output == "timeout":
                 print(user_input+" timeout")
                 continue
+            SendCommand(user_input+"\n"+last_debugger_output)
         log_thread("user_input:"+user_input)
         # trim_user_input = get_characters_after_first_whitespace(user_input)
         
