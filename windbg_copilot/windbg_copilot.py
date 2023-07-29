@@ -420,8 +420,8 @@ Hello, I am WinDbg Copilot, I'm here to assist you.
 The given commands are used to interact with WinDbg Copilot, a tool that utilizes the OpenAI model for assistance with debugging. The commands include:
 
     !auto: auto mode, user provides a problem description, ChatGPT can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Ask user to execute the suggested command or not.
-    !chat: chat mode, user inputs are forwarded to ChatGPT, ChatGPT can reply with simple answers or suggesting a single command to execute to further analyze the problem. User will decide to execute the suggested command or not.
-    !command: command mode, user inputs are forwarded to debugger like manual debugging in WinDbg.
+    !chat: chat mode, user inputs are forwarded to ChatGPT, ChatGPT can reply with simple answers or suggesting a single command to execute to further analyze the problem.
+    !command: command mode, user inputs are forwarded to debugger like manual debugging in WinDbg, debugger outputs are forwarded to ChatGPT, ChatGPT can reply with simple explanations or suggesting a single command to execute to further analyze the problem. User will decide to execute the suggested command or not.
     !quit or !q or q or qq: Terminates the debugger session.
     !help or !h: Provides help information.
 
