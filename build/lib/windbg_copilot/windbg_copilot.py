@@ -9,6 +9,10 @@ import logging
 import logging.handlers
 import threading
 import tiktoken
+import uuid
+
+def generate_uuid():
+    return uuid.uuid4()
 
 def add_log(log_message):
     root_logger.info(log_message)
@@ -45,7 +49,7 @@ class BSDLogFormatter(logging.Formatter):
     def format(self, record):
         msg = super().format(record)
         msg = msg.replace('%', '%%')  # Escape '%' characters
-        return f'WinDbg_Copilot <{self.get_priority(record)}> {self.get_timestamp()} {msg}'
+        return f'WinDbg_Copilot <{self.get_priority(record)}> {session_uuid} {self.get_timestamp()} {msg}'
 
     @staticmethod
     def get_timestamp():
@@ -82,13 +86,16 @@ def get_characters_after_first_whitespace(string):
 PromptTemplate = '''
 You are a debugging assistant, integrated to WinDbg.
 
-Commands that the user execute are forwarded to you. You can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Only suggest one command at a time!
+Commands that the user execute and debugger outputs are forwarded to you. You can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Only suggest one command at a time!
 
 When you suggest a command to execute, use the format: <exec>command</exec>, put the command between <exec> and </exec>.
 
-The high level description of the problem provided by the user is:
-'''
+<debug extension>
 
+The high level description of the problem provided by the user is:
+<description>
+'''
+debugger_extension = ""
 conversation = []
 # prompt = "You are a debugging assistant, integrated to WinDbg."
 # promptTokens = 0
@@ -97,15 +104,22 @@ def UpdatePrompt(description):
     # global promptTokens
     # prompt = PromptTemplate+description
     # promptTokens = num_tokens_from_string(prompt)
+    # global conversation
+    # conversation.append({"role": "system", "content": PromptTemplate + " " + description})
+    global prompt
+    prompt = PromptTemplate.replace("<debug extension>",debugger_extension)
+    prompt = prompt.replace("<description>",description)
+    global promptTokens
+    promptTokens = num_tokens_from_string(prompt)
     global conversation
-    conversation.append({"role": "system", "content": PromptTemplate + " " + description})
+    conversation = []
     return SendCommand(None)
 
 
 def SendCommand(text):
-    # global prompt
-    # if prompt == None:
-    #     return
+    global prompt
+    if prompt == None:
+        return
     # global api_selection
     # global azure_openai_deployment
     global conversation
@@ -114,92 +128,102 @@ def SendCommand(text):
         conversation.append({"role": "user", "content": text})
 
     max_response_tokens = 250
-    if api_selection == "1":
+    if api_selection == "1" and model_selection == "1":
         tokenLimit = 16384
-    elif api_selection == "2":
+    else:
         tokenLimit = 8192
-    tokenCount = num_tokens_from_messages(conversation)
+    tokenCount = num_tokens_from_messages(conversation) + promptTokens + max_response_tokens
 
-    while tokenCount + max_response_tokens >= tokenLimit and len(conversation) > 1:
-        if len(conversation) == 2:
-            while num_tokens_from_messages(conversation) + max_response_tokens > tokenLimit:
-                content_len = len(conversation[1]["content"])
-                conversation[1]["content"] = conversation[1]["content"][:int(content_len*0.9)]
-        else:
-            del conversation[1]
-        tokenCount = num_tokens_from_messages(conversation)
-    
+    del_times = 0
+    conv_len = len(conversation)
+    while tokenCount > tokenLimit and len(conversation) > 0:
+        # if len(conversation) == 2:
+        #     while num_tokens_from_messages(conversation) + max_response_tokens > tokenLimit:
+        #         content_len = len(conversation[1]["content"])
+        #         conversation[1]["content"] = conversation[1]["content"][:int(content_len*0.9)]
+        # else:
+        del_times += 1
+        del conversation[0]
+        tokenCount = num_tokens_from_messages(conversation) + promptTokens + max_response_tokens
+    if del_times > 0:
+        print("\n\nTokenLimit " + str(tokenLimit) + " has reached, " + str(del_times) + " out of " + str(conv_len) + " messages deleted.")
+
+    actualConversation = []
+    actualConversation.append({"role": "system", "content": prompt})
+    actualConversation.extend(conversation)
+
     print("\nThinking...\n")
 
     try:
         if api_selection == '1':
             response=openai.ChatCompletion.create(
-            model="gpt-4" if model_selection == '2' else "gpt-3.5-turbo-16k-0613",
-            messages = conversation,
+            model="gpt-4" if model_selection == '2' else "gpt-3.5-turbo-16k",
+            messages = actualConversation,
             max_tokens=max_response_tokens,
-            temperature=0
+            temperature=0,
+            stream=True
             )
         elif api_selection == '2':
             response=openai.ChatCompletion.create(
             engine = azure_openai_deployment,
-            messages = conversation,
+            messages = actualConversation,
             max_tokens=max_response_tokens,
-            temperature=0
+            temperature=0,
+            stream=True
             )
     except Exception as e:
         print(str(e))
         log_thread("exception:"+str(e))
         return str(e)
 
-    text = response.choices[0].message.content.strip()
-    conversation.append({"role": "assistant", "content": text})
-    print(text)
-    return text
+    # text = response.choices[0].message.content.strip()
+    # conversation.append({"role": "assistant", "content": text})
+    # print(text)
 
-def chat(last_Copilot_output):
-    # executed_commands = set()
+    # create variables to collect the stream of chunks
+    # collected_chunks = []
+    collected_messages = []
+    # iterate through the stream of events
+    for chunk in response:
+        # chunk_time = time.time() - start_time  # calculate the time delay of the chunk
+        # collected_chunks.append(chunk)  # save the event response
+        chunk_message = chunk['choices'][0]['delta']  # extract the message
+        collected_messages.append(chunk_message)  # save the message
+        print(chunk_message.get('content', ''), end='')  # print the delay and text
+
+    print("\n")
+    # print the time delay and text received
+    # print(f"Full response received {chunk_time:.2f} seconds after request")
+    full_reply_content = ''.join([m.get('content', '') for m in collected_messages])
+    conversation.append({"role": "assistant", "content": full_reply_content})
+    # print(f"Full conversation received: {full_reply_content}")
+
+    return full_reply_content
+
+def auto(last_Copilot_output):
     while True:
         pattern = r'<exec>(.*?)<\/exec>'
         matches = re.findall(pattern, last_Copilot_output)
-        # pattern = r'"(.*?)"'
-        # matches += re.findall(pattern, last_Copilot_output)
-        # pattern = r'\'(.*?)\''
-        # matches += re.findall(pattern, last_Copilot_output)
-        # pattern = r'`(.*?)`'
-        # matches += re.findall(pattern, last_Copilot_output)
-        # pattern = r'The\s+(.*?)\s+command'
-        # matches += re.findall(pattern, last_Copilot_output)
-        # pattern = r'```\n(.*?)\n```'
-        # matches += re.findall(pattern, last_Copilot_output)
         if matches:
-            matches_len = len(matches)
-            match_index = 0
+            command_nums = len(matches)
+            unexecuted_times = 0
             for match in matches:
-                # if match in executed_commands:
-                #     match_index += 1
-                #     print("\n"+match+" had been executed.")
-                #     continue
-                # else:
                 confirm = input("\nDo you want to execute command: " + match + "? Y or N: ")
-                print("\n")
                 if confirm == "Y" or confirm == "y" or confirm == "":
                     log_thread("execute command:"+match)
                     last_debugger_output = dbg(match)
                     if last_debugger_output == "timeout":
                         print(match+" timeout")
                         break
-                    # executed_commands.add(match)
                     last_Copilot_output = SendCommand(last_debugger_output)
                     break
-                    # print("\n" + last_Copilot_output)
                 else:
-                    match_index += 1
+                    unexecuted_times += 1
                     continue
-            if match_index == matches_len:
+            if unexecuted_times == command_nums:
                 break
         else:
-            print("\nNo command suggested.")
-            # last_Copilot_output = SendCommand(last_debugger_output)
+            print("\nNo more command suggested.")
             break
 
 class ReaderThread(threading.Thread):
@@ -257,7 +281,6 @@ def get_results():
         if int(elapsed_time) > 120:
             while True:
                 wait = input("\nFunction get_results timeout 120 seconds, do you want to wait longer? Y or N: ")
-                print("\n")
                 if wait == 'N' or wait == 'n':
                     return "timeout"
                 elif wait == 'Y' or wait == 'y' or wait == '':
@@ -283,6 +306,9 @@ def dbg(command):
         return get_results()
 
 def start():
+    global session_uuid
+    session_uuid = generate_uuid()
+
     log_thread('process start')
 
     global api_selection
@@ -293,7 +319,8 @@ def start():
             if openai.api_key == None:
                 openai.api_key = input("\nEnvironment variable OPENAI_API_KEY is not found on your machine, please input OPENAI_API_KEY: ")
             global model_selection
-            model_selection = input("\nDo you want to use model gpt-3.5-turbo-16k-0613 or model gpt-4? 1 for gpt-3.5-turbo-16k-0613, 2 for gpt-4: ")
+            model_selection = input("\nDo you want to use model gpt-3.5-turbo-16k or model gpt-4? 1 for gpt-3.5-turbo-16k, 2 for gpt-4: ")
+            log_thread('model_selection:'+model_selection)
         elif api_selection == '2':
             openai.api_type = "azure"
             openai.api_base = os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -308,7 +335,7 @@ def start():
             if azure_openai_deployment == None:
                 azure_openai_deployment = input("\nEnvironment variable AZURE_OPENAI_DEPLOYMENT is not found on your machine, please input AZURE_OPENAI_DEPLOYMENT: ")
     log_thread('api_selection:'+api_selection)
-    log_thread('model_selection:'+model_selection)
+    
     WinDbg_path = os.getenv("WinDbg_PATH")
     if WinDbg_path == None:
         WinDbg_path = input("\nEnvironment variable WinDbg_PATH is not found on your machine, please input WinDbg installation path which contains WinDbg.exe: ")
@@ -323,7 +350,6 @@ def start():
     open_type = ''
     while open_type != '1' and open_type != '2':
         open_type = input("\nDo you want to open dump/trace file or connect to remote debugger? 1 for dump/trace file, 2 for remote debugger: ")
-
         if open_type == '1':
             # print("\nPlease enter your memory dump file path, only *.dmp or *.run files are supported")
             # speak("Please enter your memory dump file path.")
@@ -373,18 +399,16 @@ def start():
     results = dbg("||")
     log_thread('dump:'+results)
 
-    user_input = input("\nDo you want to load any debug extensions? Debug extension dll path: ")
-    print("\n")
-    log_thread("debug extension dll path:"+user_input)
+    user_input = input("\nDo you want to load any debugger extensions? Debugger extension dll path: ")
+    log_thread("debugger extension dll path:"+user_input)
     last_debugger_output = dbg(".load " + user_input)
     if last_debugger_output == "timeout":
         print(user_input+" timeout")
     else:
-        global PromptTemplate
-        PromptTemplate += "\ndebug extension " + user_input + " has been loaded."
+        global debugger_extension
+        debugger_extension = "Debug extension " + user_input + " has been loaded."
 
     user_input = input("\nDo you want to add any symbol file path? Symbol file path: ")
-    print("\n")
     log_thread("symbol file path:"+user_input)
     last_debugger_output = dbg(".sympath+\"" + user_input + "\"")
     if last_debugger_output == "timeout":
@@ -395,9 +419,9 @@ Hello, I am WinDbg Copilot, I'm here to assist you.
 
 The given commands are used to interact with WinDbg Copilot, a tool that utilizes the OpenAI model for assistance with debugging. The commands include:
 
-    !chat: Chat mode, conversation will be sent to OpenAI ChatGPT model, ChatGPT can reply with simple explanations or suggest a single command to execute to further analyze the problem. User will decide to execute the suggested command or not.
-    !command: Command mode, user inputs are sent to debugger and debugger outputs will be sent to OpenAI ChatGPT model, ChatGPT can reply with simple explanations or suggest a single command to execute to further analyze the problem.
-    !problem <problem statement>: Updates the problem description by providing a new problem statement.
+    !auto: auto mode, user provides a problem description, ChatGPT can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Ask user to execute the suggested command or not.
+    !chat: chat mode, user inputs are forwarded to ChatGPT, ChatGPT can reply with simple answers or suggesting a single command to execute to further analyze the problem.
+    !command: command mode, user inputs are forwarded to debugger like manual debugging in WinDbg, debugger outputs are forwarded to ChatGPT, ChatGPT can reply with simple explanations or suggesting a single command to execute to further analyze the problem. User will decide to execute the suggested command or not.
     !quit or !q or q or qq: Terminates the debugger session.
     !help or !h: Provides help information.
 
@@ -405,57 +429,74 @@ Note: WinDbg Copilot requires an active Internet connection to function properly
     '''
     
     print(help_msg)
-
-    problem_description = input("Problem description: ")
-    log_thread("Problem description:"+problem_description)
-    last_Copilot_output = UpdatePrompt(problem_description)
-    chat(last_Copilot_output)
-    
+ 
     last_debugger_output = ""
     # last_Copilot_output = ""
-    chat_mode = True
+    mode = "auto"
     while True:
         # Prompt the user for input
-        
-        # speak("Please enter your input.")
-        if chat_mode:
+        if mode == "auto":
+            problem_description = input("Problem description: ")
+            log_thread("Problem description:"+problem_description)
+            last_Copilot_output = UpdatePrompt(problem_description)
+            auto(last_Copilot_output)
+            mode = "chat"
+        elif mode == "chat":
             user_input = input("\n"+'Chat> ')
-        else:
+            if user_input == "!auto":
+                mode = "auto"
+                print("\nauto mode.")
+                continue
+            elif user_input == "!chat":
+                mode = "chat"
+                print("\nchat mode.")
+                continue
+            elif user_input == "!command":
+                mode = "command"
+                print("\ncommand mode.")
+                continue
+            elif user_input == "!quit" or user_input == "!q" or user_input == "q" or user_input == "qq":
+                text = "Goodbye, have a nice day!"
+                print(text)
+                dbg("qq")
+                break
+            elif user_input == "!help" or user_input == "!h":
+                print(help_msg)
+                continue
+            SendCommand(user_input)
+        elif mode == "command":
             user_input = input("\n"+'Command> ')
-        log_thread("user_input:"+user_input)
-        trim_user_input = get_characters_after_first_whitespace(user_input)
-        
-        if user_input == "!chat":
-            chat_mode = True
-            print("Chat mode, conversation will be sent to OpenAI ChatGPT model, ChatGPT can reply with simple explanations or suggest a single command to execute to further analyze the problem. User will decide to execute the suggested command or not.")
-            continue
-        elif user_input == "!command":
-            chat_mode = False
-            print("Command mode, user inputs are sent to debugger and debugger outputs will be sent to OpenAI ChatGPT model, ChatGPT can reply with simple explanations or suggest a single command to execute to further analyze the problem.")
-            continue
-        elif user_input.startswith("!problem "):
-            last_Copilot_output = UpdatePrompt(trim_user_input)
-            # print(last_Copilot_output)
-            continue
-        elif user_input == "!quit" or user_input == "!q" or user_input == "q" or user_input == "qq":
-            text = "Goodbye, have a nice day!"
-            print(text)
-            dbg("qq")
-            break
-        elif user_input == "!help" or user_input == "!h":
-            print(help_msg)
-            continue
-
-        if chat_mode:
-            last_Copilot_output=SendCommand(user_input)
-            chat(last_Copilot_output)
-        else:
-            # Send the user input to cdb.exe
+            print("\n")
+            if user_input == "!auto":
+                mode = "auto"
+                print("\nauto mode.")
+                continue
+            elif user_input == "!chat":
+                mode = "chat"
+                print("\nchat mode.")
+                continue
+            elif user_input == "!command":
+                mode = "command"
+                print("\ncommand mode.")
+                continue
+            elif user_input == "!quit" or user_input == "!q" or user_input == "q" or user_input == "qq":
+                text = "Goodbye, have a nice day!"
+                print(text)
+                dbg("qq")
+                break
+            elif user_input == "!help" or user_input == "!h":
+                print(help_msg)
+                continue
             last_debugger_output = dbg(user_input)
             if last_debugger_output == "timeout":
                 print(user_input+" timeout")
                 continue
-            last_Copilot_output = SendCommand(last_debugger_output)
+            SendCommand(user_input+"\n"+last_debugger_output)
+        log_thread("user_input:"+user_input)
+        # trim_user_input = get_characters_after_first_whitespace(user_input)
+        
+
+
     log_thread('process exit') 
 
 if __name__ == "__main__":
