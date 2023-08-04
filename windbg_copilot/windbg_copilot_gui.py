@@ -17,6 +17,7 @@ from tkinter import Scrollbar
 from tkinter import Text
 from tkinter import Entry
 from tkinter import Frame
+from tkinter import messagebox, ttk
 
 def generate_uuid():
     return uuid.uuid4()
@@ -554,8 +555,7 @@ if __name__ == "__main__":
 
     # Define actions for menu items
     def open_file():
-        filepath = filedialog.askopenfilename()
-        print(f"Filepath: {filepath}")
+        dumpfile_path = filedialog.askopenfilename()
 
     def remote_debugging():
         print("Remote debugging...")
@@ -565,13 +565,62 @@ if __name__ == "__main__":
     root.config(menu=menubar)
 
     # Create File Menu
-    file_menu = Menu(menubar)
+    file_menu = Menu(menubar, tearoff=0)
     menubar.add_cascade(label="File", menu=file_menu)
-    file_menu.add_command(label="Open File", command=open_file)
+    file_menu.add_command(label="Open dump/trace file", command=open_file)
+    file_menu.add_command(label="Connect to remote debugger", command=remote_debugging)
 
-    # Create Debug Menu
-    debug_menu = Menu(menubar)
-    menubar.add_cascade(label="Debug", menu=debug_menu)
-    debug_menu.add_command(label="Remote Debugging", command=remote_debugging)
+    def create_widgets(root):
+        # menubar = tk.Menu(root)
+        # setting_menu = tk.Menu(menubar, tearoff=0)
+        # setting_menu.add_command(label="Settings", command=lambda: create_settings_window(root))
+        # menubar.add_cascade(label="Settings", menu=setting_menu)
+        menubar.add_command(label="Settings", command=lambda: create_settings_window(root))
+
+        # root.config(menu=menubar)
+
+    def create_entry(window, row, env_variable, label_text):
+        ttk.Label(window, text=label_text).grid(row=row, column=0, sticky='w')
+        entry = ttk.Entry(window)
+        entry.insert(0, os.environ.get(env_variable, ""))
+        entry.grid(row=row, column=1, sticky='ew')
+        return entry
+
+    def save_settings(entries, api_selection, settings_window):
+        variables = {name: entry.get() for name, entry in entries.items()}
+
+        messagebox.showinfo("Success", "Settings saved successfully!")
+        settings_window.destroy()
+
+    def create_settings_window(root):
+        settings_window = tk.Toplevel(root)
+        settings_window.geometry("800x300")
+        settings_window.title("Settings")
+        settings_window.columnconfigure(1, weight=1)  # configure column to expand
+
+        ttk.Label(settings_window, text="Do you want to use OpenAI API or Azure OpenAI?").grid(row=0, column=0, sticky='w', columnspan=2)
+        api_selection = tk.StringVar(value="1")  # set default value to "1" for "OpenAI API"
+        ttk.Radiobutton(settings_window, text="OpenAI API", variable=api_selection, value="1").grid(row=1, column=0, sticky='w')
+        ttk.Radiobutton(settings_window, text="Azure OpenAI", variable=api_selection, value="2").grid(row=1, column=1, sticky='w')
+
+        ttk.Label(settings_window, text="Do you want to use model gpt-3.5-turbo-16k or model gpt-4?").grid(row=2, column=0, sticky='w', columnspan=2)
+        model_selection = tk.StringVar(value="1")  # set default value to "1" for "gpt-3.5-turbo-16k"
+        ttk.Radiobutton(settings_window, text="gpt-3.5-turbo-16k", variable=api_selection, value="1").grid(row=3, column=0, sticky='w')
+        ttk.Radiobutton(settings_window, text="gpt-4", variable=api_selection, value="2").grid(row=3, column=1, sticky='w')
+
+
+        entries = {
+            "OPENAI_API_KEY": create_entry(settings_window, 4, "OPENAI_API_KEY", "OpenAI API Key:"),
+            "AZURE_OPENAI_ENDPOINT": create_entry(settings_window, 5, "AZURE_OPENAI_ENDPOINT", "Azure OpenAI Endpoint:"),
+            "AZURE_OPENAI_KEY": create_entry(settings_window, 6, "AZURE_OPENAI_KEY", "Azure OpenAI Key:"),
+            "AZURE_OPENAI_DEPLOYMENT": create_entry(settings_window, 7, "AZURE_OPENAI_DEPLOYMENT", "Azure OpenAI Deployment:"),
+            "WinDbg_PATH": create_entry(settings_window, 8, "WinDbg_PATH", "WinDbg Path:"),
+            "_NT_SYMBOL_PATH": create_entry(settings_window, 9, "_NT_SYMBOL_PATH", "NT Symbol Path:")
+        }
+
+        ttk.Button(settings_window, text="Save", command=lambda: save_settings(entries, api_selection, settings_window)).grid(row=10, column=0, sticky='w')
+
+    # root = tk.Tk()
+    create_widgets(root)
 
     root.mainloop()

@@ -5,15 +5,16 @@ WinDbg Copilot is a ChatGPT powered AI assistant integrated with WinDbg. It anal
 Prerequisites
 
         1. Operating System: Windows 11
-        2. If you want to use OpenAI API, add environmet variable OPENAI_API_KEY = <openai api key>
+        2. If you want to use OpenAI API, add environmet variable OPENAI_API_KEY = <Openai API Key>
         3. If you want to use Azure OpenAI, add following environment variables:
                 AZURE_OPENAI_ENDPOINT = <Azure OpenAI Endpoint>
                 AZURE_OPENAI_KEY = <Azure OpenAI Key>
                 AZURE_OPENAI_DEPLOYMENT = <Azure OpenAI Deployment Name>
-        4. The Windows Debugger (WinDbg) installed on your machine, for example: C:\Program Files\Debugging Tools for Windows (x64)
+        4. The Debugging Tools for Windows WinDbg (classic) installed on your machine, download url: https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/debugger-download-tools
+           For example: C:\Program Files\Debugging Tools for Windows (x64)
            Add environment variable WinDbg_PATH = C:\Program Files\Debugging Tools for Windows (x64).
            Add environment variable _NT_SYMBOL_PATH = srv*c:\symbols*https://msdl.microsoft.com/download/symbols
-        5. python >=3.9, <3.12 installed on your machine.
+        5. python version >=3.9, <3.12 installed on your machine.
         6. An Internet connection for downloading and installing the package.
 
 Installation
