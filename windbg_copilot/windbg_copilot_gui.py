@@ -543,9 +543,11 @@ def run(open_type, dumpfile_path, connection_str):
             print(connection_str + "connection failed.")
         return
     left_text.insert(tk.END, results)
+    left_text.see(tk.END)
 
     results = dbg("||")
     left_text.insert(tk.END, results)
+    left_text.see(tk.END)
 
     log_thread('dump:'+results)
 
@@ -562,24 +564,31 @@ if __name__ == "__main__":
 
     # Create the PanedWindow.
     paned_window = tk.PanedWindow(root, orient=tk.HORIZONTAL)
-    paned_window.pack(fill=tk.BOTH, expand=1)  # This will ensure the paned window fills the entire root window.
+    paned_window.pack(fill=tk.BOTH, expand=1)
 
-    # # Create the left Text widget.
-    # left_text = tk.Text(paned_window, wrap=tk.WORD)
-    # paned_window.add(left_text)
-
-    # To create a frame on the left side which will hold both the text widget and the entry.
+    # To create a frame on the left side which will hold the text widget, the entry, and the scrollbar.
     left_frame = tk.Frame(paned_window)
     paned_window.add(left_frame)
 
     global left_text
-    # Add the Text widget to the left frame.
+    # Create the left Text widget and place it inside the left frame using grid.
     left_text = tk.Text(left_frame, wrap=tk.WORD)
-    left_text.pack(fill=tk.BOTH, expand=1, padx=5, pady=5)
+    left_text.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
-    # Create the Entry widget just below the left Text widget and add it to the left frame.
+    # Configure the grid geometry manager for left_frame.
+    left_frame.grid_rowconfigure(0, weight=1)   # This allows the left_text to expand.
+    left_frame.grid_columnconfigure(0, weight=1) # This allows the left_text to expand.
+
+    # Create a Scrollbar and associate it with left_text.
+    scrollbar = tk.Scrollbar(left_frame, command=left_text.yview)
+    scrollbar.grid(row=0, column=1, sticky="ns")
+
+    # Link the scrollbar and the text widget.
+    left_text['yscrollcommand'] = scrollbar.set
+
+    # Create the Entry widget below the left_text widget and add it to the left frame.
     entry = tk.Entry(left_frame)
-    entry.pack(fill=tk.X, padx=5, pady=5)
+    entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
     # Create the right Text widget.
     right_text = tk.Text(paned_window, wrap=tk.WORD)
@@ -594,6 +603,8 @@ if __name__ == "__main__":
     # Define function to send output to text widget
     def send_output(output):
         left_text.insert(tk.END, output)
+        left_text.see(tk.END)
+
 
     # Bind Return key to get_input
     entry.bind('<Return>', get_input)
