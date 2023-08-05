@@ -18,6 +18,7 @@ from tkinter import Text
 from tkinter import Entry
 from tkinter import Frame
 from tkinter import messagebox, ttk
+import configparser
 
 def generate_uuid():
     return uuid.uuid4()
@@ -503,59 +504,105 @@ Note: WinDbg Copilot requires an active Internet connection to function properly
         log_thread("user_input:"+user_input)
         # trim_user_input = get_characters_after_first_whitespace(user_input)
         
-
-
     log_thread('process exit') 
 
+def run(open_type, dumpfile_path, connection_str):
+    # Reading configuration
+    config = configparser.ConfigParser()
+    config.read('config.ini')
+    api_choice = config['API_SELECTION'].get('choice', '1')  # Defaulting to '1' if not found
+    model_choice = config['MODEL_SELECTION'].get('choice', '1')  # Defaulting to '1' if not found
+
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+    AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    AZURE_OPENAI_KEY = os.environ.get("AZURE_OPENAI_KEY", "")
+    AZURE_OPENAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "")
+    WinDbg_path = os.environ.get("WinDbg_path", "")
+    symbol_path = os.environ.get("_NT_SYMBOL_PATH", "")
+
+    WinDbg_path+=r"\cdb.exe"
+    arguments = [WinDbg_path]
+    if open_type == 1:
+        arguments.extend(['-z', dumpfile_path])  # Dump file
+    elif open_type == 2:
+        arguments.extend(['-remote', connection_str])  # Dump file
+    arguments.extend(['-y', symbol_path])  # Symbol path, may use sys.argv[1]
+    arguments.extend(['-c', ".echo Command Completed"])
+    global process,reader
+    process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True)
+    reader = ReaderThread(process.stdout)
+    reader.start()
+
+    log_thread('arguments:'+' '.join(arguments))
+
+    results = get_results()
+    if results == "timeout":
+        if open_type == '1':
+            print(dumpfile_path + "open failed.")
+        elif open_type == '2':
+            print(connection_str + "connection failed.")
+        return
+    left_text.insert(tk.END, results)
+
+    results = dbg("||")
+    left_text.insert(tk.END, results)
+
+    log_thread('dump:'+results)
+
 if __name__ == "__main__":
-    # Create main window
+    global session_uuid
+    session_uuid = generate_uuid()
+
+    log_thread('process start')
+
+    # Create the main window.
     root = tk.Tk()
-    root.geometry("800x600")  # specify size
+    root.geometry('800x600')
+    root.title('WinDbg Copilot')
 
-    # Create Frames
-    left_frame = Frame(root)
-    left_frame.pack(side='left', fill='both', expand=True)
+    # Create the PanedWindow.
+    paned_window = tk.PanedWindow(root, orient=tk.HORIZONTAL)
+    paned_window.pack(fill=tk.BOTH, expand=1)  # This will ensure the paned window fills the entire root window.
 
-    right_frame = Frame(root)
-    right_frame.pack(side='right', fill='both', expand=True)
+    # # Create the left Text widget.
+    # left_text = tk.Text(paned_window, wrap=tk.WORD)
+    # paned_window.add(left_text)
 
-    # Create Text widget in left frame
-    text1 = Text(left_frame)  # specifying a width
-    text1.pack(pady=10)
+    # To create a frame on the left side which will hold both the text widget and the entry.
+    left_frame = tk.Frame(paned_window)
+    paned_window.add(left_frame)
 
-    # Create Entry widget in left frame with same width as text widget
-    entry = Entry(left_frame)  # the same width as the Text widget
-    entry.pack(pady=10)
+    global left_text
+    # Add the Text widget to the left frame.
+    left_text = tk.Text(left_frame, wrap=tk.WORD)
+    left_text.pack(fill=tk.BOTH, expand=1, padx=5, pady=5)
+
+    # Create the Entry widget just below the left Text widget and add it to the left frame.
+    entry = tk.Entry(left_frame)
+    entry.pack(fill=tk.X, padx=5, pady=5)
+
+    # Create the right Text widget.
+    right_text = tk.Text(paned_window, wrap=tk.WORD)
+    paned_window.add(right_text)
 
     # Define function to get input from Entry widget
     def get_input(event):
         input_value = entry.get()
-        # print(f"Input Value: {input_value}")
         send_output(f"{input_value}\n")
         entry.delete(0, 'end')  # clear the entry field
 
     # Define function to send output to text widget
     def send_output(output):
-        text1.insert(tk.END, output)
+        left_text.insert(tk.END, output)
 
     # Bind Return key to get_input
     entry.bind('<Return>', get_input)
 
-    # Create Text widget in right frame
-    text2 = Text(right_frame)  # specify a width
-    text2.pack(pady=10)
-
-    # Create Scrollbar in right frame for the text widget
-    scrollbar = Scrollbar(right_frame)
-    scrollbar.pack(side='right', fill='y')
-
-    # Link scrollbar to text widget
-    text2.config(yscrollcommand=scrollbar.set)
-    scrollbar.config(command=text2.yview)
-
     # Define actions for menu items
     def open_file():
         dumpfile_path = filedialog.askopenfilename()
+        run(1,dumpfile_path,"")
+
 
     def remote_debugging():
         print("Remote debugging...")
@@ -570,44 +617,87 @@ if __name__ == "__main__":
     file_menu.add_command(label="Open dump/trace file", command=open_file)
     file_menu.add_command(label="Connect to remote debugger", command=remote_debugging)
 
-    def create_widgets(root):
-        # menubar = tk.Menu(root)
-        # setting_menu = tk.Menu(menubar, tearoff=0)
-        # setting_menu.add_command(label="Settings", command=lambda: create_settings_window(root))
-        # menubar.add_cascade(label="Settings", menu=setting_menu)
-        menubar.add_command(label="Settings", command=lambda: create_settings_window(root))
-
-        # root.config(menu=menubar)
+    menubar.add_command(label="Settings", command=lambda: create_settings_window(root))
 
     def create_entry(window, row, env_variable, label_text):
-        ttk.Label(window, text=label_text).grid(row=row, column=0, sticky='w')
+        label = ttk.Label(window, text=label_text)
+        label.grid(row=row, column=0, sticky='w')
         entry = ttk.Entry(window)
         entry.insert(0, os.environ.get(env_variable, ""))
         entry.grid(row=row, column=1, sticky='ew')
-        return entry
+        return label, entry
 
-    def save_settings(entries, api_selection, settings_window):
-        variables = {name: entry.get() for name, entry in entries.items()}
+    def save_settings(entries, api_selection, model_selection, settings_window):
+        # 1. Save radio button selections to config.ini
+        config = configparser.ConfigParser()
+
+        config['API_SELECTION'] = {'choice': api_selection.get()}
+        config['MODEL_SELECTION'] = {'choice': model_selection.get()}
+
+        with open('config.ini', 'w') as configfile:
+            config.write(configfile)
+
+        # 2. Save entries to environment variables for the current session
+        for key, entry_tuple in entries.items():
+            os.environ[key] = entry_tuple[1].get()
+
+        # 3. Save entries to environment variables permanently (on Windows)
+        for key, entry_tuple in entries.items():
+            # For user-specific environment variable:
+            subprocess.call(['setx', key, entry_tuple[1].get()])
+
+            # For system-wide environment variable (requires administrative privileges):
+            # subprocess.call(['setx', key, entry_tuple[1].get(), '/M'])
 
         messagebox.showinfo("Success", "Settings saved successfully!")
         settings_window.destroy()
 
     def create_settings_window(root):
+
+        def update_model_buttons():
+            if api_selection.get() == "2":  # Azure OpenAI
+                lb_model.config(foreground='grey')
+                rb_gpt3_5.config(state=tk.DISABLED)
+                rb_gpt4.config(state=tk.DISABLED)
+                for key in ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT"]:
+                    entries[key][0].config(foreground='black')  # Label
+                    entries[key][1].config(state=tk.NORMAL)     # Entry
+                entries["OPENAI_API_KEY"][0].config(foreground='grey')  # Label
+                entries["OPENAI_API_KEY"][1].config(state=tk.DISABLED)  # Entry
+            else:  # OpenAI API
+                lb_model.config(foreground='black')
+                rb_gpt3_5.config(state=tk.NORMAL)
+                rb_gpt4.config(state=tk.NORMAL)
+                entries["OPENAI_API_KEY"][0].config(foreground='black')  # Label
+                entries["OPENAI_API_KEY"][1].config(state=tk.NORMAL)     # Entry
+                for key in ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY", "AZURE_OPENAI_DEPLOYMENT"]:
+                    entries[key][0].config(foreground='grey')  # Label
+                    entries[key][1].config(state=tk.DISABLED)  # Entry
+
         settings_window = tk.Toplevel(root)
         settings_window.geometry("800x300")
         settings_window.title("Settings")
         settings_window.columnconfigure(1, weight=1)  # configure column to expand
 
+        # Reading configuration
+        config = configparser.ConfigParser()
+        config.read('config.ini')
+        api_choice = config['API_SELECTION'].get('choice', '1')  # Defaulting to '1' if not found
+        model_choice = config['MODEL_SELECTION'].get('choice', '1')  # Defaulting to '1' if not found
+
         ttk.Label(settings_window, text="Do you want to use OpenAI API or Azure OpenAI?").grid(row=0, column=0, sticky='w', columnspan=2)
-        api_selection = tk.StringVar(value="1")  # set default value to "1" for "OpenAI API"
-        ttk.Radiobutton(settings_window, text="OpenAI API", variable=api_selection, value="1").grid(row=1, column=0, sticky='w')
-        ttk.Radiobutton(settings_window, text="Azure OpenAI", variable=api_selection, value="2").grid(row=1, column=1, sticky='w')
+        api_selection = tk.StringVar(value=api_choice)
+        ttk.Radiobutton(settings_window, text="OpenAI API", variable=api_selection, value="1", command=update_model_buttons).grid(row=1, column=0, sticky='w')
+        ttk.Radiobutton(settings_window, text="Azure OpenAI", variable=api_selection, value="2", command=update_model_buttons).grid(row=1, column=1, sticky='w')
 
-        ttk.Label(settings_window, text="Do you want to use model gpt-3.5-turbo-16k or model gpt-4?").grid(row=2, column=0, sticky='w', columnspan=2)
-        model_selection = tk.StringVar(value="1")  # set default value to "1" for "gpt-3.5-turbo-16k"
-        ttk.Radiobutton(settings_window, text="gpt-3.5-turbo-16k", variable=api_selection, value="1").grid(row=3, column=0, sticky='w')
-        ttk.Radiobutton(settings_window, text="gpt-4", variable=api_selection, value="2").grid(row=3, column=1, sticky='w')
+        lb_model = ttk.Label(settings_window, text="Do you want to use model gpt-3.5-turbo-16k or model gpt-4?")
+        lb_model.grid(row=2, column=0, sticky='w', columnspan=2)
 
+        model_selection = tk.StringVar(value=model_choice)
+        rb_gpt3_5 = ttk.Radiobutton(settings_window, text="gpt-3.5-turbo-16k", variable=model_selection, value="1")
+        rb_gpt3_5.grid(row=3, column=0, sticky='w')
+        rb_gpt4 = ttk.Radiobutton(settings_window, text="gpt-4", variable=model_selection, value="2")
+        rb_gpt4.grid(row=3, column=1, sticky='w')
 
         entries = {
             "OPENAI_API_KEY": create_entry(settings_window, 4, "OPENAI_API_KEY", "OpenAI API Key:"),
@@ -618,9 +708,9 @@ if __name__ == "__main__":
             "_NT_SYMBOL_PATH": create_entry(settings_window, 9, "_NT_SYMBOL_PATH", "NT Symbol Path:")
         }
 
-        ttk.Button(settings_window, text="Save", command=lambda: save_settings(entries, api_selection, settings_window)).grid(row=10, column=0, sticky='w')
+        # Update model buttons to match loaded API selection
+        update_model_buttons()
 
-    # root = tk.Tk()
-    create_widgets(root)
+        ttk.Button(settings_window, text="Save", command=lambda: save_settings(entries, api_selection, model_selection, settings_window)).grid(row=10, column=0, sticky='w')
 
     root.mainloop()
