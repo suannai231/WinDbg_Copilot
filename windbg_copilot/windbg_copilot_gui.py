@@ -174,7 +174,7 @@ def SendCommand(text):
             )
         elif api_selection == '2':
             response=openai.ChatCompletion.create(
-            engine = azure_openai_deployment,
+            engine = AZURE_OPENAI_DEPLOYMENT,
             messages = actualConversation,
             max_tokens=max_response_tokens,
             temperature=0,
@@ -510,13 +510,22 @@ def run(open_type, dumpfile_path, connection_str):
     # Reading configuration
     config = configparser.ConfigParser()
     config.read('config.ini')
-    api_choice = config['API_SELECTION'].get('choice', '1')  # Defaulting to '1' if not found
-    model_choice = config['MODEL_SELECTION'].get('choice', '1')  # Defaulting to '1' if not found
+    global api_selection, model_selection
+    api_selection = config['API_SELECTION'].get('choice', '1')  # Defaulting to '1' if not found
+    model_selection = config['MODEL_SELECTION'].get('choice', '1')  # Defaulting to '1' if not found
 
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
     AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
     AZURE_OPENAI_KEY = os.environ.get("AZURE_OPENAI_KEY", "")
+    global AZURE_OPENAI_DEPLOYMENT
     AZURE_OPENAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "")
+
+    openai.api_key = OPENAI_API_KEY if api_selection=='1' else AZURE_OPENAI_KEY
+    if api_selection == '2':
+        openai.api_type = "azure"
+        openai.api_base = AZURE_OPENAI_ENDPOINT
+        openai.api_version = "2023-05-15"
+
     WinDbg_path = os.environ.get("WinDbg_path", "")
     symbol_path = os.environ.get("_NT_SYMBOL_PATH", "")
 
@@ -559,7 +568,7 @@ if __name__ == "__main__":
 
     # Create the main window.
     root = tk.Tk()
-    root.geometry('800x600')
+    root.geometry('1280x720')
     root.title('WinDbg Copilot')
 
     # Create the PanedWindow.
@@ -587,27 +596,55 @@ if __name__ == "__main__":
     left_text['yscrollcommand'] = scrollbar.set
 
     # Create the Entry widget below the left_text widget and add it to the left frame.
-    entry = tk.Entry(left_frame)
-    entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+    left_entry = tk.Entry(left_frame)
+    left_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
-    # Create the right Text widget.
-    right_text = tk.Text(paned_window, wrap=tk.WORD)
-    paned_window.add(right_text)
+    # To create a frame on the right side which will hold the text widget and the entry.
+    right_frame = tk.Frame(paned_window)
+    paned_window.add(right_frame)
+
+    # Create the Entry widget and place it at the top of the right frame using grid.
+    right_entry = tk.Entry(right_frame)
+    right_entry.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+
+    # Configure the grid geometry manager for right_frame.
+    right_frame.grid_rowconfigure(1, weight=1)   # This allows the right_text to expand.
+    right_frame.grid_columnconfigure(0, weight=1) # This allows the right_text to expand.
+
+    # Create the right Text widget and place it below the right_entry widget in the right frame.
+    right_text = tk.Text(right_frame, wrap=tk.WORD)
+    right_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
     # Define function to get input from Entry widget
-    def get_input(event):
-        input_value = entry.get()
-        send_output(f"{input_value}\n")
-        entry.delete(0, 'end')  # clear the entry field
+    def get_input_left(event):
+        input_value = left_entry.get()
+        send_output_left(f"{input_value}\n")
+        left_entry.delete(0, 'end')  # clear the entry field
 
     # Define function to send output to text widget
-    def send_output(output):
+    def send_output_left(output):
         left_text.insert(tk.END, output)
         left_text.see(tk.END)
 
+    # Define function to get input from Entry widget
+    def get_input_right(event):
+        problem_description = right_entry.get()
+        log_thread("Problem description:"+problem_description)
+        last_Copilot_output = UpdatePrompt(problem_description)
+        # auto(last_Copilot_output)
+        send_output_right(f"{last_Copilot_output}\n")
+        right_entry.delete(0, 'end')  # clear the entry field
+
+    # Define function to send output to text widget
+    def send_output_right(output):
+        right_text.insert(tk.END, output)
+        right_text.see(tk.END)
+        
+    # Bind Return key to get_input
+    left_entry.bind('<Return>', get_input_left)
 
     # Bind Return key to get_input
-    entry.bind('<Return>', get_input)
+    right_entry.bind('<Return>', get_input_right)
 
     # Define actions for menu items
     def open_file():
