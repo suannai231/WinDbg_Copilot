@@ -305,7 +305,7 @@ def dbg(command):
 
         return get_results()
 
-def start():
+def main():
     global session_uuid
     session_uuid = generate_uuid()
 
@@ -501,5 +501,5 @@ Note: WinDbg Copilot requires an active Internet connection to function properly
 
 if __name__ == "__main__":
     # log_thread('process start')
-    start()
+    main()
     # log_thread('process exit') 

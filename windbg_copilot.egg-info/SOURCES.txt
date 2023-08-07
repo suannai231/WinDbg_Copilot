@@ -4,11 +4,15 @@ README.md
 pyproject.toml
 setup.cfg
 setup.py
-WinDbg_Copilot/WinDbg_Copilot.py
+WinDbg_Copilot/WinDbg_Copilot_Console.py
+WinDbg_Copilot/WinDbg_Copilot_GUI.py
 WinDbg_Copilot/__init__.py
+WinDbg_Copilot/config.ini
+WinDbg_Copilot/thumbnail.ico
 WinDbg_Copilot/version.py
 WinDbg_Copilot.egg-info/PKG-INFO
 WinDbg_Copilot.egg-info/SOURCES.txt
 WinDbg_Copilot.egg-info/dependency_links.txt
+WinDbg_Copilot.egg-info/entry_points.txt
 WinDbg_Copilot.egg-info/requires.txt
 WinDbg_Copilot.egg-info/top_level.txt

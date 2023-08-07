@@ -1,0 +1,3 @@
+[console_scripts]
+windbg-copilot-console = WinDbg_Copilot.WinDbg_Copilot_Console:main
+windbg-copilot-gui = WinDbg_Copilot.WinDbg_Copilot_GUI:main
