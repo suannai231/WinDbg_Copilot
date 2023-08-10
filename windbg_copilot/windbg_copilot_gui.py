@@ -867,10 +867,11 @@ By proceeding to use WinDbg Copilot, you signify your understanding and acceptan
 
     # Define function to get input from Entry widget
     def get_input_chat(event):
-        send_output_chat(f"\nThinking...\n")
         # read_config()
         user_input = chat_entry.get()
+        send_output_chat(f"\n{user_input}\n")
         log_thread("User Input:"+user_input)
+        send_output_chat(f"\nThinking...\n")
         def SendCommandThread(user_input):
             last_Copilot_output = SendCommand(user_input)
             send_output_chat(f"\n{last_Copilot_output}\n")

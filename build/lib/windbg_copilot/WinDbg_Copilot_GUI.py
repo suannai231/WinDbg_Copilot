@@ -20,6 +20,9 @@ from tkinter import Frame
 from tkinter import messagebox, ttk
 import configparser
 
+# List to hold your threads
+threads = []
+
 def generate_uuid():
     return uuid.uuid4()
 
@@ -30,6 +33,7 @@ def log_thread(log_message):
     # Create and start the thread
     thread = threading.Thread(target=add_log, args=(log_message,))
     thread.start()
+    threads.append(thread)
 
 def num_tokens_from_string(string: str, encoding_name: str = "cl100k_base") -> int:
     """Returns the number of tokens in a text string."""
@@ -95,7 +99,7 @@ def get_characters_after_first_whitespace(string):
 PromptTemplate = '''
 You are a debugging assistant, integrated to WinDbg.
 
-Commands that the user execute and debugger outputs are forwarded to you. You can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Only suggest one command at a time!
+Commands that the user execute and WinDbg outputs are forwarded to you. You can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Only suggest one command at a time!
 
 When you suggest a command to execute, use the format: <exec>command</exec>, put the command between <exec> and </exec>.
 
@@ -103,6 +107,13 @@ When you suggest a command to execute, use the format: <exec>command</exec>, put
 
 The high level description of the problem provided by the user is:
 <description>
+'''
+PromptTemplateForChat = '''
+You are a debugging assistant, integrated to WinDbg.
+
+Commands that the user execute and WinDbg outputs and user inputs are forwarded to you. You can reply with simple answers or suggesting a single command to execute to further analyze the problem. Only suggest one command at a time!
+
+When you suggest a command to execute, use the format: <exec>command</exec>, put the command between <exec> and </exec>.
 '''
 debugger_extension = ""
 conversation = []
@@ -124,14 +135,19 @@ def UpdatePrompt(description):
     conversation = []
     return SendCommand(None)
 
+def UpdateConversation(text):
+    if text != None:
+        conversation.append({"role": "user", "content": text})
 
 def SendCommand(text):
-    global prompt
-    if prompt == None:
-        return
+    global prompt, promptTokens
+    if 'prompt' not in globals():
+        prompt = PromptTemplateForChat
+        promptTokens = num_tokens_from_string(prompt)
+
     # global api_selection
     # global azure_openai_deployment
-    global conversation
+    # global conversation
 
     if text != None:
         conversation.append({"role": "user", "content": text})
@@ -313,11 +329,11 @@ def dbg(command):
         process.stdin.flush()
         return get_results()
     else:
-        left_entry.delete(0, tk.END)
-        left_entry.insert(0, "Debuggee not connected")
-        left_entry.config(state=tk.DISABLED)
-        right_entry.delete(0, tk.END)
-        right_entry.config(state=tk.DISABLED)
+        command_entry.delete(0, tk.END)
+        command_entry.insert(0, "Debuggee not connected")
+        command_entry.config(state=tk.DISABLED)
+        auto_entry.delete(0, tk.END)
+        auto_entry.config(state=tk.DISABLED)
         file_menu.entryconfig("Open dump/trace file", state=tk.NORMAL)
         file_menu.entryconfig("Connect to remote debugger", state=tk.NORMAL)
         process.terminate()
@@ -407,6 +423,7 @@ def start():
     process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True)
     reader = ReaderThread(process.stdout)
     reader.start()
+    threads.append(reader)
 
     log_thread('arguments:'+' '.join(arguments))
 
@@ -534,6 +551,23 @@ def read_config():
     global AZURE_OPENAI_DEPLOYMENT
     AZURE_OPENAI_DEPLOYMENT = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "")
 
+    global WinDbg_path
+    WinDbg_path = os.environ.get("WinDbg_path", "")
+    global symbol_path
+    symbol_path = os.environ.get("_NT_SYMBOL_PATH", "")
+
+    if (api_selection == '1' and OPENAI_API_KEY == "") or (api_selection == '2' and (AZURE_OPENAI_ENDPOINT == "" or AZURE_OPENAI_KEY == "" or AZURE_OPENAI_DEPLOYMENT == "")) or (WinDbg_path == "") or (symbol_path == ""):
+        file_menu.entryconfig("Open dump/trace file", state=tk.DISABLED)
+        file_menu.entryconfig("Connect to remote debugger", state=tk.DISABLED)
+        chat_entry.config(state=tk.DISABLED)
+        # messagebox.showinfo("Failure", "Required information are missing!")
+        return False
+    else:
+        file_menu.entryconfig("Open dump/trace file", state=tk.NORMAL)
+        file_menu.entryconfig("Connect to remote debugger", state=tk.NORMAL)
+        chat_entry.config(state=tk.NORMAL)
+        # messagebox.showinfo("Success", "Settings saved successfully!")
+    
     openai.api_key = OPENAI_API_KEY if api_selection=='1' else AZURE_OPENAI_KEY
     if api_selection == '2':
         openai.api_type = 'azure'
@@ -544,14 +578,15 @@ def read_config():
         openai.api_base = 'https://api.openai.com/v1'
         openai.api_version = None
 
+    return True
+
 def run(open_type, dumpfile_path, connection_str):
     # read_config()
 
-    WinDbg_path = os.environ.get("WinDbg_path", "")
-    symbol_path = os.environ.get("_NT_SYMBOL_PATH", "")
-
-    WinDbg_path+=r"\cdb.exe"
-    arguments = [WinDbg_path]
+    # WinDbg_path = os.environ.get("WinDbg_path", "")
+    # symbol_path = os.environ.get("_NT_SYMBOL_PATH", "")
+    
+    arguments = [WinDbg_path+r"\cdb.exe"]
     if open_type == 1:
         arguments.extend(['-z', dumpfile_path])  # Dump file
     elif open_type == 2:
@@ -562,6 +597,7 @@ def run(open_type, dumpfile_path, connection_str):
     process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True)
     reader = ReaderThread(process.stdout)
     reader.start()
+    threads.append(reader)
 
     log_thread('arguments:'+' '.join(arguments))
 
@@ -572,12 +608,12 @@ def run(open_type, dumpfile_path, connection_str):
         elif open_type == '2':
             print(connection_str + "connection failed.")
         return
-    left_text.insert(tk.END, results)
-    left_text.see(tk.END)
+    command_text.insert(tk.END, results)
+    command_text.see(tk.END)
 
     results = dbg("||")
-    left_text.insert(tk.END, results)
-    left_text.see(tk.END)
+    command_text.insert(tk.END, results)
+    command_text.see(tk.END)
 
     log_thread('dump:'+results)
 
@@ -592,6 +628,8 @@ def main():
     def on_closing():
         if 'process' in globals():
             dbg('qq')
+        for t in threads:
+            t.join()
         root.destroy()
 
     # Create the main window.
@@ -611,64 +649,120 @@ def main():
     left_frame = tk.Frame(paned_window)
     paned_window.add(left_frame)
 
-    global left_text
+    global command_text
     # Create the left Text widget and place it inside the left frame using grid.
-    left_text = tk.Text(left_frame, wrap=tk.WORD)
-    left_text.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+    command_text = tk.Text(left_frame, wrap=tk.WORD)
+    command_text.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
     # Configure the grid geometry manager for left_frame.
-    left_frame.grid_rowconfigure(0, weight=1)   # This allows the left_text to expand.
-    left_frame.grid_columnconfigure(0, weight=1) # This allows the left_text to expand.
+    left_frame.grid_rowconfigure(0, weight=1)   # This allows the command_text to expand.
+    left_frame.grid_columnconfigure(0, weight=1) # This allows the command_text to expand.
 
-    # Create a Scrollbar and associate it with left_text.
-    scrollbar = tk.Scrollbar(left_frame, command=left_text.yview)
+    # Create a Scrollbar and associate it with command_text.
+    scrollbar = tk.Scrollbar(left_frame, command=command_text.yview)
     scrollbar.grid(row=0, column=1, sticky="ns")
 
     # Link the scrollbar and the text widget.
-    left_text['yscrollcommand'] = scrollbar.set
+    command_text['yscrollcommand'] = scrollbar.set
 
-    # Create the Entry widget below the left_text widget and add it to the left frame.
-    global left_entry
-    left_entry = tk.Entry(left_frame)
-    left_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
-    left_entry.config(state=tk.DISABLED)
+    # Create the Entry widget below the command_text widget and add it to the left frame.
+    global command_entry
+    command_entry = tk.Entry(left_frame)
+    command_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+    command_entry.config(state=tk.DISABLED)
 
     # To create a frame on the right side which will hold the text widget and the entry.
     right_frame = tk.Frame(paned_window)
     paned_window.add(right_frame)
 
     # Create a Label widget with the text "Problem description:" and place it in the right frame using grid.
-    problem_description_label = tk.Label(right_frame, text="Problem description:")
-    problem_description_label.grid(row=0, column=0, sticky="w", padx=5, pady=5)
+    # problem_description_label = tk.Label(right_frame, text="Problem description:")
+    # problem_description_label.grid(row=0, column=0, sticky="w", padx=5, pady=5)
 
     # Create the Entry widget and place it at the top of the right frame using grid.
-    global right_entry
-    right_entry = tk.Entry(right_frame)
-    right_entry.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
-    right_entry.config(state=tk.DISABLED)
+    # global auto_entry
+    # auto_entry = tk.Entry(right_frame)
+    # auto_entry.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+    # auto_entry.config(state=tk.DISABLED)
 
     # Configure the grid geometry manager for right_frame.
-    right_frame.grid_rowconfigure(2, weight=1)   # This allows the right_text to expand.
-    right_frame.grid_columnconfigure(0, weight=1) # This allows the right_text to expand.
+    # right_frame.grid_rowconfigure(2, weight=1)   # This allows the auto_text to expand.
+    # right_frame.grid_columnconfigure(0, weight=1) # This allows the auto_text to expand.
 
-    # Create the right Text widget and place it below the right_entry widget in the right frame.
-    global right_text
-    right_text = tk.Text(right_frame, wrap=tk.WORD)
-    right_text.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+    # Create the right Text widget and place it below the auto_entry widget in the right frame.
+    # global auto_text
+    # auto_text = tk.Text(right_frame, wrap=tk.WORD)
+    # auto_text.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+
+    # Create the Notebook (tab widget) inside the right frame.
+    notebook = ttk.Notebook(right_frame)
+    notebook.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+
+    # Create a frame for the "Auto" tab.
+    auto_frame = tk.Frame(notebook)
+    notebook.add(auto_frame, text="Auto")
+
+    # Move existing widgets into the "Auto" tab by using the "grid" method.
+    problem_description_label = tk.Label(auto_frame, text="Problem description:")
+    problem_description_label.grid(row=0, column=0, sticky="w", padx=5, pady=5)
+    global auto_entry
+    auto_entry = tk.Entry(auto_frame)
+    auto_entry.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+    auto_entry.config(state=tk.DISABLED)
+    global auto_text
+    auto_text = tk.Text(auto_frame, wrap=tk.WORD)
+    auto_text.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+
+    auto_frame.grid_rowconfigure(2, weight=1) # Makes the auto_text widget expandable vertically
+    auto_frame.grid_columnconfigure(0, weight=1) # Makes the widgets expandable horizontally
+
+    # Create a frame for the "Chat" tab.
+    chat_frame = tk.Frame(notebook)
+    notebook.add(chat_frame, text="Chat")
+
+    # In the "Chat" tab, add an Entry widget for user input.
+    global chat_entry
+    chat_entry = tk.Entry(chat_frame)
+    chat_entry.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+
+    # In the "Chat" tab, add a Text widget for output.
+    global chat_output_text
+    chat_output_text = tk.Text(chat_frame, wrap=tk.WORD)
+    chat_output_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+
+    # Configure the grid geometry manager for chat_frame.
+    chat_frame.grid_rowconfigure(1, weight=1)  # This allows the chat_output_text to expand.
+    chat_frame.grid_columnconfigure(0, weight=1)  # This allows the chat_output_text to expand.
+
+    # Configure the grid geometry manager for right_frame.
+    right_frame.grid_rowconfigure(0, weight=1)
+    right_frame.grid_columnconfigure(0, weight=1)
 
 
     # Define function to get input from Entry widget
-    def get_input_left(event):
-        input_value = left_entry.get()
-        send_output_left(f"{input_value}\n")
+    def get_input_command(event):
+        input_value = command_entry.get()
+        send_output_command(f"\n{input_value}\n")
+        UpdateConversation(input_value)
         last_debugger_output = dbg(input_value)
-        send_output_left(f"{last_debugger_output}\n")
-        left_entry.delete(0, 'end')  # clear the entry field
+        send_output_command(f"\n{last_debugger_output}\n")
+
+        send_output_command(f"\nThinking...\n")
+
+        def SendCommandThread(last_debugger_output):
+            last_Copilot_output = SendCommand(last_debugger_output)
+            send_output_command(f"\n{last_Copilot_output}\n")
+
+        thread = threading.Thread(target=SendCommandThread, args=(last_debugger_output,))
+        thread.start()
+        threads.append(thread)
+
+        command_entry.delete(0, 'end')  # clear the entry field
 
     # Define function to send output to text widget
-    def send_output_left(output):
-        left_text.insert(tk.END, output)
-        left_text.see(tk.END)
+    def send_output_command(output):
+        command_text.insert(tk.END, output)
+        command_text.see(tk.END)
 
     disclaimer = """Disclaimer: WinDbg Copilot
 
@@ -683,9 +777,7 @@ By using WinDbg Copilot, you acknowledge and agree that any debugging input and 
 Please ensure that you exercise caution and adhere to best practices when utilizing WinDbg Copilot to ensure the privacy and security of your own data. WinDbg Copilot project will not be held liable for any damages, losses, or unauthorized access resulting from the misuse of this application.
 
 By proceeding to use WinDbg Copilot, you signify your understanding and acceptance of these terms and conditions."""
-    send_output_left(disclaimer)
-
-    
+    send_output_command(disclaimer)
 
     def ai_assistant(last_Copilot_output):
         global link_num
@@ -695,82 +787,127 @@ By proceeding to use WinDbg Copilot, you signify your understanding and acceptan
             for match in matches:
                 def on_link_click(link_text, event=None):
                     # This function will be executed when the link is clicked.
-                    send_output_right("\nThinking...\n")
-
                     log_thread("execute command:"+link_text)
-                    send_output_left(f"\n{link_text}\n")
+                    send_output_command(f"\n{link_text}\n")
+
                     last_debugger_output = dbg(link_text)
-                    send_output_left(f"\n{last_debugger_output}\n")
+                    send_output_command(f"\n{last_debugger_output}\n")
+
+                    send_output_auto("\nThinking...\n")
+
                     if last_debugger_output == "timeout":
                         print(match+" timeout")
-                    
-                    last_Copilot_output = SendCommand(last_debugger_output)
-                    send_output_right(f"\n{last_Copilot_output}\n")
-                    ai_assistant(last_Copilot_output)
+
+                    def SendCommandThread(last_debugger_output):
+                        last_Copilot_output = SendCommand(last_debugger_output)
+                        send_output_auto(f"\n{last_Copilot_output}\n")
+                        ai_assistant(last_Copilot_output)
+
+                    thread = threading.Thread(target=SendCommandThread, args=(last_debugger_output,))
+                    thread.start()
+                    threads.append(thread)
+
                     print(f"Link {link_text} clicked!")
 
                 def on_link_enter(event):
-                    right_text.config(cursor="hand2")
+                    auto_text.config(cursor="hand2")
 
                 def on_link_leave(event):
-                    right_text.config(cursor="arrow")
+                    auto_text.config(cursor="arrow")
 
                 # Insert some text
-                right_text.insert(tk.END, "\nClick on the link: ")
+                auto_text.insert(tk.END, "\nClick on the link: ")
 
                 # Insert the clickable link
-                # start_index = right_text.index(tk.END)  # Get the current end index
+                # start_index = auto_text.index(tk.END)  # Get the current end index
                 tag_name = "clickableLink"+str(link_num)
-                right_text.insert(tk.END, f"{match}\n", (tag_name,))  # Insert text with a tag
-                # end_index = right_text.index(tk.END)  # Get the new end index
-                right_text.see(tk.END)
+                auto_text.insert(tk.END, f"{match}\n", (tag_name,))  # Insert text with a tag
+                # end_index = auto_text.index(tk.END)  # Get the new end index
+                auto_text.see(tk.END)
 
                 # Configure the tag to make it look like a link
-                right_text.tag_configure(tag_name, foreground="blue", underline=1)
+                auto_text.tag_configure(tag_name, foreground="blue", underline=1)
 
                 # Bind the click event on the tag to a function with lambda
-                right_text.tag_bind(tag_name, "<Button-1>", lambda event, link=match: on_link_click(link, event))
+                auto_text.tag_bind(tag_name, "<Button-1>", lambda event, link=match: on_link_click(link, event))
                 # Bind the enter and leave events for changing the cursor
-                right_text.tag_bind(tag_name, "<Enter>", on_link_enter)
-                right_text.tag_bind(tag_name, "<Leave>", on_link_leave)
+                auto_text.tag_bind(tag_name, "<Enter>", on_link_enter)
+                auto_text.tag_bind(tag_name, "<Leave>", on_link_leave)
                 link_num += 1
         else:
             print("\nNo more command suggested.")
-            send_output_right("\nNo more command suggested.\n")
+            send_output_auto("\nNo more command suggested.\n")
 
     # Define function to get input from Entry widget
-    def get_input_right(event):
-        read_config()
-        problem_description = right_entry.get()
-        log_thread("Problem description:"+problem_description)
-        send_output_right(f"\nThinking...\n")
-        last_Copilot_output = UpdatePrompt(problem_description)
-        send_output_right(f"\n{last_Copilot_output}\n")
-        ai_assistant(last_Copilot_output)
+    def get_input_auto(event):
+        send_output_auto(f"\nThinking...\n")
+        # read_config()
+        user_input = auto_entry.get()
+        log_thread("Problem description:"+user_input)
 
-        # send_output_right(f"{last_Copilot_output}\n")
-        # right_entry.delete(0, 'end')  # clear the entry field
+        def SendCommandThread(user_input):
+            last_Copilot_output = SendCommand(user_input)
+            send_output_auto(f"\n{last_Copilot_output}\n")
+            ai_assistant(last_Copilot_output)
+        thread = threading.Thread(target=SendCommandThread, args=(user_input,))
+        thread.start()
+        threads.append(thread)
+
+        # last_Copilot_output = UpdatePrompt(problem_description)
+        # send_output_auto(f"\n{last_Copilot_output}\n")
+        # ai_assistant(last_Copilot_output)
+
+        # send_output_auto(f"{last_Copilot_output}\n")
+        # auto_entry.delete(0, 'end')  # clear the entry field
 
     # Define function to send output to text widget
-    def send_output_right(output):
-        right_text.insert(tk.END, output)
-        right_text.see(tk.END)
-        
-    # Bind Return key to get_input
-    left_entry.bind('<Return>', get_input_left)
+    def send_output_auto(output):
+        auto_text.insert(tk.END, output)
+        auto_text.see(tk.END)
+
+    # Define function to get input from Entry widget
+    def get_input_chat(event):
+        # read_config()
+        user_input = chat_entry.get()
+        send_output_chat(f"\n{user_input}\n")
+        log_thread("User Input:"+user_input)
+        send_output_chat(f"\nThinking...\n")
+        def SendCommandThread(user_input):
+            last_Copilot_output = SendCommand(user_input)
+            send_output_chat(f"\n{last_Copilot_output}\n")
+        thread = threading.Thread(target=SendCommandThread, args=(user_input,))
+        thread.start()
+        threads.append(thread)
+        # last_Copilot_output = SendCommand(user_input)
+        # send_output_chat(f"\n{last_Copilot_output}\n")
+        # ai_assistant(last_Copilot_output)
+
+        # send_output_auto(f"{last_Copilot_output}\n")
+        chat_entry.delete(0, 'end')  # clear the entry field
+
+    # Define function to send output to text widget
+    def send_output_chat(output):
+        chat_output_text.insert(tk.END, output)
+        chat_output_text.see(tk.END)
 
     # Bind Return key to get_input
-    right_entry.bind('<Return>', get_input_right)
+    command_entry.bind('<Return>', get_input_command)
+
+    # Bind Return key to get_input
+    auto_entry.bind('<Return>', get_input_auto)
+
+    # Bind Return key to get_input
+    chat_entry.bind('<Return>', get_input_chat)
 
     # Define actions for menu items
     def open_file():
         dumpfile_path = filedialog.askopenfilename()
         if dumpfile_path != "":
             run(1,dumpfile_path,"")
-            left_entry.config(state=tk.NORMAL)
-            left_entry.delete(0, tk.END)
-            right_entry.config(state=tk.NORMAL)
-            right_entry.delete(0, tk.END)
+            command_entry.config(state=tk.NORMAL)
+            command_entry.delete(0, tk.END)
+            auto_entry.config(state=tk.NORMAL)
+            auto_entry.delete(0, tk.END)
             file_menu.entryconfig("Open dump/trace file", state=tk.DISABLED)
             file_menu.entryconfig("Connect to remote debugger", state=tk.DISABLED)
 
@@ -807,18 +944,18 @@ For more information, see https://aka.ms/windbgremote"""
             debugging_window.destroy()  # Close the window.
             if connection_str != "":
                 run(2, "", connection_str)
-                left_entry.config(state=tk.NORMAL)
-                left_entry.delete(0, tk.END)
-                right_entry.config(state=tk.NORMAL)
-                right_entry.delete(0, tk.END)
+                command_entry.config(state=tk.NORMAL)
+                command_entry.delete(0, tk.END)
+                auto_entry.config(state=tk.NORMAL)
+                auto_entry.delete(0, tk.END)
                 file_menu.entryconfig("Open dump/trace file", state=tk.DISABLED)
                 file_menu.entryconfig("Connect to remote debugger", state=tk.DISABLED)
-                left_entry.config(state=tk.NORMAL)
-                left_entry.delete(0, tk.END)
-                right_entry.config(state=tk.NORMAL)
-                right_entry.delete(0, tk.END)
-                file_menu.entryconfig("Open dump/trace file", state=tk.DISABLED)
-                file_menu.entryconfig("Connect to remote debugger", state=tk.DISABLED)
+                # command_entry.config(state=tk.NORMAL)
+                # command_entry.delete(0, tk.END)
+                # auto_entry.config(state=tk.NORMAL)
+                # auto_entry.delete(0, tk.END)
+                # file_menu.entryconfig("Open dump/trace file", state=tk.DISABLED)
+                # file_menu.entryconfig("Connect to remote debugger", state=tk.DISABLED)
 
         # Create the OK button and align it to the right.
         ok_button = ttk.Button(debugging_window, text="OK", command=save_connection)
@@ -837,7 +974,6 @@ For more information, see https://aka.ms/windbgremote"""
     menubar.add_cascade(label="File", menu=file_menu)
     file_menu.add_command(label="Open dump/trace file", command=open_file)
     file_menu.add_command(label="Connect to remote debugger", command=remote_debugging)
-
     menubar.add_command(label="Settings", command=lambda: create_settings_window(root))
 
     def create_entry(window, row, env_variable, label_text):
@@ -875,8 +1011,11 @@ For more information, see https://aka.ms/windbgremote"""
             # For system-wide environment variable (requires administrative privileges):
             # subprocess.call(['setx', key, entry_tuple[1].get(), '/M'])
 
-        read_config()
-        messagebox.showinfo("Success", "Settings saved successfully!")
+        if read_config():
+            messagebox.showinfo("Success", "Settings saved successfully!")
+        else:
+            messagebox.showinfo("Failure", "Required information are missing!")
+
         settings_window.destroy()
 
     def create_settings_window(root):
@@ -941,6 +1080,9 @@ For more information, see https://aka.ms/windbgremote"""
         update_model_buttons()
 
         ttk.Button(settings_window, text="Save", command=lambda: save_settings(entries, api_selection, model_selection, settings_window)).grid(row=10, column=1, sticky='e')
+
+    if not read_config():
+        create_settings_window(root)
 
     root.mainloop()
 

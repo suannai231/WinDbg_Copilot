@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: WinDbg-Copilot
-Version: 1.0.60
+Version: 1.0.62
 Summary: "WinDbg Copilot is a ChatGPT powered AI assistant integrated with WinDbg. It analyzes the output of the commands, and provides guidance to solve the stated problem."
 Home-page: https://github.com/suannai231/WinDbg_Copilot
 Download-URL: 
@@ -21,38 +21,42 @@ Requires-Python: <3.12,>=3.9
 Description-Content-Type: text/markdown
 License-File: LICENSE.txt
 
-README for WinDbg Copilot
+# WinDbg Copilot
 
-WinDbg Copilot is a ChatGPT powered AI assistant integrated with WinDbg. It analyzes the output of the commands, and provides guidance to solve the stated problem.
+WinDbg Copilot is a ChatGPT-powered AI assistant integrated with WinDbg. It analyzes the output of the commands and provides guidance to solve the stated problem.
 
-# Prerequisites
+## Prerequisites
 
-        1. Operating System: Windows 10 and above.
-        2. If you want to use OpenAI API, add environmet variable:
-                OPENAI_API_KEY = <Openai API Key>
-        3. If you want to use Azure OpenAI, add following environment variables:
-                AZURE_OPENAI_ENDPOINT = <Azure OpenAI Endpoint>
-                AZURE_OPENAI_KEY = <Azure OpenAI Key>
-                AZURE_OPENAI_DEPLOYMENT = <Azure OpenAI Deployment Name>
-        4. The Debugging Tools for Windows WinDbg (classic) installed on your machine, download url: https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/debugger-download-tools
-           For example: C:\Program Files\Debugging Tools for Windows (x64)
-           Add environment variable WinDbg_PATH = C:\Program Files\Debugging Tools for Windows (x64).
-           Add environment variable _NT_SYMBOL_PATH = srv*c:\symbols*https://msdl.microsoft.com/download/symbols
-        5. Python version >=3.9, <3.12 installed on your machine.
-        6. An Internet connection for downloading and installing the package.
+1. **Operating System:** Windows 10 and above.
+2. **OpenAI API:** If you want to use OpenAI API, add environment variable:
+   ```
+   OPENAI_API_KEY = <Openai API Key>
+   ```
+3. **Azure OpenAI:** If you want to use Azure OpenAI, add the following environment variables:
+   ```
+   AZURE_OPENAI_ENDPOINT = <Azure OpenAI Endpoint>
+   AZURE_OPENAI_KEY = <Azure OpenAI Key>
+   AZURE_OPENAI_DEPLOYMENT = <Azure OpenAI Deployment Name>
+   ```
+4. **Debugging Tools for Windows WinDbg (classic):** Installed on your machine.
+   ```
+   Download URL: https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/debugger-download-tools
+   Add environment variable WinDbg_PATH = C:\Program Files\Debugging Tools for Windows (x64).
+   Add environment variable _NT_SYMBOL_PATH = srv*c:\symbols*https://msdl.microsoft.com/download/symbols
+   ```
+5. **Python:** Version >=3.9, <3.12 installed on your machine.
+6. **Internet Connection:** For downloading and installing the package.
 
-## Installation:
+## Installation
 
-1. First, you need to ensure you have Python installed. You can download it from the [official Python website](https://www.python.org/downloads/windows/) if you haven't already.
-
+1. Ensure you have Python installed.
 2. Open the Command Prompt or PowerShell.
+3. Install the package using pip:
+   ```
+   pip install WinDbg_Copilot
+   ```
 
-3. Install the package using `pip`:
-    ```
-    pip install WinDbg_Copilot
-    ```
-
-## Running the Console and GUI versions:
+## Running the Console and GUI versions
 
 Users can run the console or GUI version as follows:
 
@@ -70,7 +74,7 @@ Type in the Command Prompt or PowerShell:
 windbg-copilot-gui
 ```
 
-## Running using Python (as per your latest preference):
+## Running using Python:
 
 If users want to run the apps directly using Python:
 
@@ -85,12 +89,7 @@ python -m WinDbg_Copilot.WinDbg_Copilot_Console
 ```
 python -m WinDbg_Copilot.WinDbg_Copilot_GUI
 ```
-
-Remember: The latter approach requires users to be in a directory containing the `WinDbg_Copilot` package directory, or to have the appropriate Python paths set up. If they installed the package via `pip`, the paths should be set up automatically.
-
-## Choosing between Console and GUI:
-
-# WinDbg Copilot Console App Usage
+# WinDbg Copilot Console App
 
 Hello, I am WinDbg Copilot, I'm here to assist you.
 
@@ -108,24 +107,24 @@ Note: WinDbg Copilot requires an active Internet connection to function properly
 
 Welcome to the WinDbg Copilot GUI App - your go-to solution for an enhanced debugging experience powered by AI!
 
+## New Feature: Tab Widget
+
+We have introduced a tab widget to the GUI application:
+
+1. **Auto Tab:** Users provide a problem description, AI assistant guides the debugging process until no more suggestions or solution has been found.
+2. **Chat Tab:** A unique interactive experience for more advanced users with existing WinDbg and debugging skills. Users can talk freely with the AI assistant, ask any debugging questions, and the AI assistant will reply with simple answers and provide an executable command. Users can execute the suggested command in the command window, and the AI assistant will process the WinDbg output and reply with further instructions.
+
 ## Overview
 
-The WinDbg Copilot GUI App seamlessly blends the power of WinDbg with the intelligence of OpenAI, providing you with intelligent suggestions throughout your debugging session. With configurable settings, support for various file types, and an integrated AI assistant, this app takes debugging to a whole new level.
+The WinDbg Copilot GUI App seamlessly blends the power of WinDbg with the intelligence of OpenAI, providing you with intelligent suggestions throughout your debugging session. With configurable settings, support for various file types, an integrated AI assistant, and the newly added tab widget, this app takes debugging to a whole new level.
 
 ## Features
 
 1. **Configurable Settings Menu:** Tailor the app to your needs through a user-friendly settings menu.
 2. **File Support:** Open local memory dump files or time travel trace files directly within the app.
 3. **Remote Debugger Connection:** Need to debug remotely? Connect effortlessly to a remote debugger from within the app.
-4. **Integrated WinDbg Command Window:** 
-   - Positioned on the left side of the app.
-   - View debugger outputs conveniently in a dedicated text widget.
-   - Enter your debug commands in an entry widget located just below the display.
-5. **AI-Powered Assistant:** 
-   - Located on the right side of the app.
-   - Input your problem description and send it to OpenAI for smart debugging suggestions.
-   - The AI assistant's suggestions are not just textual; they're actionable! Receive clickable command links, and with a simple click, execute them in the debugger.
-   - Enjoy a conversational debugging flow. As debugger outputs are returned, they are processed by OpenAI for further suggestions, creating an interactive loop to assist you until resolution.
+4. **Integrated WinDbg Command Window:** Positioned on the left side of the app; View debugger outputs conveniently in a dedicated text widget; Enter your debug commands in an entry widget located just below the display.
+5. **AI-Powered Assistant with Tab Widget:** Now enjoy the flexibility of Auto and Chat tabs for different debugging experiences.
 
 ## How It Works
 
@@ -138,12 +137,13 @@ The WinDbg Copilot GUI App seamlessly blends the power of WinDbg with the intell
 
 # Uninstallation
 
-        Open a command prompt or terminal window.
-        Use pip to uninstall the WinDbg Copilot package:
+Open a command prompt or terminal window. Use pip to uninstall the WinDbg Copilot package:
 
-                pip uninstall WinDbg_Copilot
+```
+pip uninstall WinDbg_Copilot
+```
 
-        The packages will be uninstalled automatically.
+The packages will be uninstalled automatically.
 
 ## Conclusion
 
