@@ -19,6 +19,7 @@ from tkinter import Entry
 from tkinter import Frame
 from tkinter import messagebox, ttk
 import configparser
+import webbrowser
 
 # List to hold your threads
 threads = []
@@ -133,13 +134,20 @@ def UpdatePrompt(description):
     promptTokens = num_tokens_from_string(prompt)
     global conversation
     conversation = []
-    return SendCommand(None)
+    return SendCommand(None,'')
 
 def UpdateConversation(text):
     if text != None:
         conversation.append({"role": "user", "content": text})
 
-def SendCommand(text):
+# Define function to send output to text widget
+def send_output_chat(output):
+    chat_output_text.config(state="normal")
+    chat_output_text.insert(tk.END, output)
+    chat_output_text.see(tk.END)
+    chat_output_text.config(state="disabled")       
+
+def SendCommand(text, widget):
     global prompt, promptTokens
     if 'prompt' not in globals():
         prompt = PromptTemplateForChat
@@ -177,7 +185,7 @@ def SendCommand(text):
     actualConversation.append({"role": "system", "content": prompt})
     actualConversation.extend(conversation)
 
-    print("\nThinking...\n")
+    print("\nWinDbg Copilot:\n")
 
     try:
         if api_selection == '1':
@@ -215,6 +223,8 @@ def SendCommand(text):
         chunk_message = chunk['choices'][0]['delta']  # extract the message
         collected_messages.append(chunk_message)  # save the message
         print(chunk_message.get('content', ''), end='')  # print the delay and text
+        if widget == 'chat':
+            send_output_chat(chunk_message.get('content', ''))
 
     print("\n")
     # print the time delay and text received
@@ -224,32 +234,6 @@ def SendCommand(text):
     # print(f"Full conversation received: {full_reply_content}")
 
     return full_reply_content
-
-def auto(last_Copilot_output):
-    while True:
-        pattern = r'<exec>(.*?)<\/exec>'
-        matches = re.findall(pattern, last_Copilot_output)
-        if matches:
-            command_nums = len(matches)
-            unexecuted_times = 0
-            for match in matches:
-                confirm = input("\nDo you want to execute command: " + match + "? Y or N: ")
-                if confirm == "Y" or confirm == "y" or confirm == "":
-                    log_thread("execute command:"+match)
-                    last_debugger_output = dbg(match)
-                    if last_debugger_output == "timeout":
-                        print(match+" timeout")
-                        break
-                    last_Copilot_output = SendCommand(last_debugger_output)
-                    break
-                else:
-                    unexecuted_times += 1
-                    continue
-            if unexecuted_times == command_nums:
-                break
-        else:
-            print("\nNo more command suggested.")
-            break
 
 class ReaderThread(threading.Thread):
     def __init__(self, stream):
@@ -342,199 +326,6 @@ def dbg(command):
 
     return "Debug session ended."
 
-def start():
-    global session_uuid
-    session_uuid = generate_uuid()
-
-    log_thread('process start')
-
-    global api_selection
-    while api_selection != '1' and api_selection != '2':
-        api_selection = input("\nDo you want to use OpenAI API or Azure OpenAI? 1 for OpenAI API, 2 for Azure OpenAI: ")
-        if api_selection == '1':
-            openai.api_key = os.getenv("OPENAI_API_KEY")
-            if openai.api_key == None:
-                openai.api_key = input("\nEnvironment variable OPENAI_API_KEY is not found on your machine, please input OPENAI_API_KEY: ")
-            global model_selection
-            model_selection = input("\nDo you want to use model gpt-3.5-turbo-16k or model gpt-4? 1 for gpt-3.5-turbo-16k, 2 for gpt-4: ")
-            log_thread('model_selection:'+model_selection)
-        elif api_selection == '2':
-            openai.api_type = "azure"
-            openai.api_base = os.getenv("AZURE_OPENAI_ENDPOINT")
-            if openai.api_base == None:
-                openai.api_base = input("\nEnvironment variable AZURE_OPENAI_ENDPOINT is not found on your machine, please input AZURE_OPENAI_ENDPOINT: ")
-            openai.api_version = "2023-05-15"
-            openai.api_key = os.getenv("AZURE_OPENAI_KEY")
-            if openai.api_key == None:
-                openai.api_key = input("\nEnvironment variable AZURE_OPENAI_KEY is not found on your machine, please input AZURE_OPENAI_KEY: ")
-            global azure_openai_deployment
-            azure_openai_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT")
-            if azure_openai_deployment == None:
-                azure_openai_deployment = input("\nEnvironment variable AZURE_OPENAI_DEPLOYMENT is not found on your machine, please input AZURE_OPENAI_DEPLOYMENT: ")
-    log_thread('api_selection:'+api_selection)
-    
-    WinDbg_path = os.getenv("WinDbg_PATH")
-    if WinDbg_path == None:
-        WinDbg_path = input("\nEnvironment variable WinDbg_PATH is not found on your machine, please input WinDbg installation path which contains WinDbg.exe: ")
-
-        while not os.path.exists(WinDbg_path):
-            print("\nPath does not exist or does not include WinDbg.exe and cdb.exe")
-            WinDbg_path = input("\nWinDbg installation path which contains WinDbg.exe and cdb.exe:")
-            
-    WinDbg_path+=r"\cdb.exe"
-
-    print("\nThis software is used for debugging learning purpose, please do not load any customer data.")
-    open_type = ''
-    while open_type != '1' and open_type != '2':
-        open_type = input("\nDo you want to open dump/trace file or connect to remote debugger? 1 for dump/trace file, 2 for remote debugger: ")
-        if open_type == '1':
-            # print("\nPlease enter your memory dump file path, only *.dmp or *.run files are supported")
-            # speak("Please enter your memory dump file path.")
-
-            dumpfile_path = input("\nPlease enter your memory dump file path, only *.dmp or *.run files are supported. Memory dump file path: ").lower()
-
-            while not (os.path.exists(dumpfile_path) and (dumpfile_path.endswith('.dmp') or dumpfile_path.endswith('.run'))):
-                print("\nFile does not exist or type is not *.dmp or *.run")
-                # speak("File does not exist")
-                dumpfile_path = input("\nMemory dump file path:")
-        elif open_type == '2':
-            connection_str = input("\nConnection String: ")
-            pattern = r'^tcp:Port=(\d+),Server=[A-Za-z0-9\-]+$'
-
-            while not re.match(pattern, connection_str):
-                connection_str = input("\nConnection String:")
-
-    log_thread('open_type:'+open_type)
-
-    symbol_path = os.getenv("_NT_SYMBOL_PATH")
-    if symbol_path == None:
-        symbol_path = 'srv*C:\symbols*https://msdl.microsoft.com/download/symbols'
-        print("\nEnvironment variable _NT_SYMBOL_PATH is not found on your machine, set default symbol path to srv*C:\symbols*https://msdl.microsoft.com/download/symbols")
-
-    # command = r'C:\Program Files\Debugging Tools for Windows (x64)\cdb.exe'
-    arguments = [WinDbg_path]
-    if open_type == '1':
-        arguments.extend(['-z', dumpfile_path])  # Dump file
-    elif open_type == '2':
-        arguments.extend(['-remote', connection_str])  # Dump file
-    arguments.extend(['-y', symbol_path])  # Symbol path, may use sys.argv[1]
-    arguments.extend(['-c', ".echo Command Completed"])
-    global process,reader
-    process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stdin=subprocess.PIPE, universal_newlines=True)
-    reader = ReaderThread(process.stdout)
-    reader.start()
-    threads.append(reader)
-
-    log_thread('arguments:'+' '.join(arguments))
-
-    if get_results() == "timeout":
-        if open_type == '1':
-            print(dumpfile_path + "open failed.")
-        elif open_type == '2':
-            print(connection_str + "connection failed.")
-        return
-
-    results = dbg("||")
-    log_thread('dump:'+results)
-
-    user_input = input("\nDo you want to load any debugger extensions? Debugger extension dll path: ")
-    log_thread("debugger extension dll path:"+user_input)
-    last_debugger_output = dbg(".load " + user_input)
-    if last_debugger_output == "timeout":
-        print(user_input+" timeout")
-    else:
-        global debugger_extension
-        debugger_extension = "Debug extension " + user_input + " has been loaded."
-
-    user_input = input("\nDo you want to add any symbol file path? Symbol file path: ")
-    log_thread("symbol file path:"+user_input)
-    last_debugger_output = dbg(".sympath+\"" + user_input + "\"")
-    if last_debugger_output == "timeout":
-        print(user_input+" timeout")
-
-    help_msg = '''
-Hello, I am WinDbg Copilot, I'm here to assist you.
-
-The given commands are used to interact with WinDbg Copilot, a tool that utilizes the OpenAI model for assistance with debugging. The commands include:
-
-    !auto: auto mode, user provides a problem description, ChatGPT can reply with simple explanations or suggesting a single command to execute to further analyze the problem. Ask user to execute the suggested command or not.
-    !chat: chat mode, user inputs are forwarded to ChatGPT, ChatGPT can reply with simple answers or suggesting a single command to execute to further analyze the problem.
-    !command: command mode, user inputs are forwarded to debugger like manual debugging in WinDbg, debugger outputs are forwarded to ChatGPT, ChatGPT can reply with simple explanations or suggesting a single command to execute to further analyze the problem. User will decide to execute the suggested command or not.
-    !quit or !q or q or qq: Terminates the debugger session.
-    !help or !h: Provides help information.
-
-Note: WinDbg Copilot requires an active Internet connection to function properly, as it relies on Openai API.
-    '''
-    
-    print(help_msg)
- 
-    last_debugger_output = ""
-    # last_Copilot_output = ""
-    mode = "auto"
-    while True:
-        # Prompt the user for input
-        if mode == "auto":
-            problem_description = input("Problem description: ")
-            log_thread("Problem description:"+problem_description)
-            last_Copilot_output = UpdatePrompt(problem_description)
-            auto(last_Copilot_output)
-            mode = "chat"
-        elif mode == "chat":
-            user_input = input("\n"+'Chat> ')
-            if user_input == "!auto":
-                mode = "auto"
-                print("\nauto mode.")
-                continue
-            elif user_input == "!chat":
-                mode = "chat"
-                print("\nchat mode.")
-                continue
-            elif user_input == "!command":
-                mode = "command"
-                print("\ncommand mode.")
-                continue
-            elif user_input == "!quit" or user_input == "!q" or user_input == "q" or user_input == "qq":
-                text = "Goodbye, have a nice day!"
-                print(text)
-                dbg("qq")
-                break
-            elif user_input == "!help" or user_input == "!h":
-                print(help_msg)
-                continue
-            SendCommand(user_input)
-        elif mode == "command":
-            user_input = input("\n"+'Command> ')
-            print("\n")
-            if user_input == "!auto":
-                mode = "auto"
-                print("\nauto mode.")
-                continue
-            elif user_input == "!chat":
-                mode = "chat"
-                print("\nchat mode.")
-                continue
-            elif user_input == "!command":
-                mode = "command"
-                print("\ncommand mode.")
-                continue
-            elif user_input == "!quit" or user_input == "!q" or user_input == "q" or user_input == "qq":
-                text = "Goodbye, have a nice day!"
-                print(text)
-                dbg("qq")
-                break
-            elif user_input == "!help" or user_input == "!h":
-                print(help_msg)
-                continue
-            last_debugger_output = dbg(user_input)
-            if last_debugger_output == "timeout":
-                print(user_input+" timeout")
-                continue
-            SendCommand(user_input+"\n"+last_debugger_output)
-        log_thread("user_input:"+user_input)
-        # trim_user_input = get_characters_after_first_whitespace(user_input)
-        
-    log_thread('process exit') 
-
 def read_config():
     # Reading configuration
     config = configparser.ConfigParser()
@@ -608,12 +399,16 @@ def run(open_type, dumpfile_path, connection_str):
         elif open_type == '2':
             print(connection_str + "connection failed.")
         return
+    
+    # set command_text state to normal
+    command_text.config(state=tk.NORMAL)
     command_text.insert(tk.END, results)
     command_text.see(tk.END)
+    command_text.config(state=tk.DISABLED)
 
-    results = dbg("||")
-    command_text.insert(tk.END, results)
-    command_text.see(tk.END)
+    # results = dbg("||")
+    # command_text.insert(tk.END, results)
+    # command_text.see(tk.END)
 
     log_thread('dump:'+results)
 
@@ -649,27 +444,40 @@ def main():
     left_frame = tk.Frame(paned_window)
     paned_window.add(left_frame)
 
-    global command_text
-    # Create the left Text widget and place it inside the left frame using grid.
-    command_text = tk.Text(left_frame, wrap=tk.WORD)
-    command_text.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+    # Create the Notebook (tab widget) inside the left frame.
+    left_notebook = ttk.Notebook(left_frame)
+    left_notebook.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
-    # Configure the grid geometry manager for left_frame.
-    left_frame.grid_rowconfigure(0, weight=1)   # This allows the command_text to expand.
-    left_frame.grid_columnconfigure(0, weight=1) # This allows the command_text to expand.
+    # Create a frame for the "Command" tab.
+    command_frame = tk.Frame(left_notebook)
+    left_notebook.add(command_frame, text="Command")
+
+    global command_text
+    command_text = tk.Text(command_frame, wrap=tk.WORD, state="disabled")
+    command_text.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+    # command_text.insert("end", "This is a read-only Text widget")
+    # command_text.config(state="disabled")
 
     # Create a Scrollbar and associate it with command_text.
-    scrollbar = tk.Scrollbar(left_frame, command=command_text.yview)
-    scrollbar.grid(row=0, column=1, sticky="ns")
+    command_scrollbar = tk.Scrollbar(command_frame, command=command_text.yview)
+    command_scrollbar.grid(row=0, column=1, sticky="ns")
 
     # Link the scrollbar and the text widget.
-    command_text['yscrollcommand'] = scrollbar.set
-
+    command_text['yscrollcommand'] = command_scrollbar.set
+    
     # Create the Entry widget below the command_text widget and add it to the left frame.
     global command_entry
-    command_entry = tk.Entry(left_frame)
+    command_entry = tk.Entry(command_frame)
     command_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
     command_entry.config(state=tk.DISABLED)
+
+    # Configure the grid geometry manager for command_frame.
+    command_frame.grid_rowconfigure(0, weight=1)   # This allows the command_text to expand.
+    command_frame.grid_columnconfigure(0, weight=1) # This allows the command_text to expand.
+
+    # Configure the grid geometry manager for right_frame.
+    left_frame.grid_rowconfigure(0, weight=1)
+    left_frame.grid_columnconfigure(0, weight=1)
 
     # To create a frame on the right side which will hold the text widget and the entry.
     right_frame = tk.Frame(paned_window)
@@ -698,9 +506,38 @@ def main():
     notebook = ttk.Notebook(right_frame)
     notebook.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
+    # Create a frame for the "Chat" tab.
+    chat_frame = tk.Frame(notebook)
+    notebook.add(chat_frame, text="CHAT: WINDBG COPILOT")
+
+    # In the "Chat" tab, add a Text widget for output.
+    global chat_output_text
+    chat_output_text = tk.Text(chat_frame, wrap=tk.WORD, state="disabled")
+    chat_output_text.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+
+    # Create a Scrollbar and associate it with command_text.
+    chat_scrollbar = tk.Scrollbar(chat_frame, command=chat_output_text.yview)
+    chat_scrollbar.grid(row=0, column=1, sticky="ns")
+
+    # Link the scrollbar and the text widget.
+    chat_output_text['yscrollcommand'] = chat_scrollbar.set
+
+    # In the "Chat" tab, add a Label widget
+    chat_label = tk.Label(chat_frame, text="Ask Copilot a question")
+    chat_label.grid(row=1, column=0, sticky="w", padx=5, pady=5)
+
+    # In the "Chat" tab, add an Entry widget for user input.
+    global chat_entry
+    chat_entry = tk.Entry(chat_frame)
+    chat_entry.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+
+    # Configure the grid geometry manager for chat_frame.
+    chat_frame.grid_rowconfigure(0, weight=1)  # This allows the chat_output_text to expand.
+    chat_frame.grid_columnconfigure(0, weight=1)  # This allows the chat_output_text to expand.
+
     # Create a frame for the "Auto" tab.
     auto_frame = tk.Frame(notebook)
-    notebook.add(auto_frame, text="Auto")
+    notebook.add(auto_frame, text="AUTO")
 
     # Move existing widgets into the "Auto" tab by using the "grid" method.
     problem_description_label = tk.Label(auto_frame, text="Problem description:")
@@ -710,35 +547,29 @@ def main():
     auto_entry.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
     auto_entry.config(state=tk.DISABLED)
     global auto_text
-    auto_text = tk.Text(auto_frame, wrap=tk.WORD)
+    auto_text = tk.Text(auto_frame, wrap=tk.WORD, state="disabled")
     auto_text.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+
+    # Create a Scrollbar and associate it with command_text.
+    auto_scrollbar = tk.Scrollbar(chat_frame, command=auto_text.yview)
+    auto_scrollbar.grid(row=0, column=1, sticky="ns")
+
+    # Link the scrollbar and the text widget.
+    auto_text['yscrollcommand'] = auto_scrollbar.set
 
     auto_frame.grid_rowconfigure(2, weight=1) # Makes the auto_text widget expandable vertically
     auto_frame.grid_columnconfigure(0, weight=1) # Makes the widgets expandable horizontally
-
-    # Create a frame for the "Chat" tab.
-    chat_frame = tk.Frame(notebook)
-    notebook.add(chat_frame, text="Chat")
-
-    # In the "Chat" tab, add an Entry widget for user input.
-    global chat_entry
-    chat_entry = tk.Entry(chat_frame)
-    chat_entry.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
-
-    # In the "Chat" tab, add a Text widget for output.
-    global chat_output_text
-    chat_output_text = tk.Text(chat_frame, wrap=tk.WORD)
-    chat_output_text.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
-
-    # Configure the grid geometry manager for chat_frame.
-    chat_frame.grid_rowconfigure(1, weight=1)  # This allows the chat_output_text to expand.
-    chat_frame.grid_columnconfigure(0, weight=1)  # This allows the chat_output_text to expand.
 
     # Configure the grid geometry manager for right_frame.
     right_frame.grid_rowconfigure(0, weight=1)
     right_frame.grid_columnconfigure(0, weight=1)
 
+    # Set the fames in paned_window to have the same size when the window is resized.
+    paned_window.paneconfigure(left_frame, minsize=600)
+    paned_window.paneconfigure(right_frame, minsize=600)
 
+
+    
     # Define function to get input from Entry widget
     def get_input_command(event):
         input_value = command_entry.get()
@@ -747,24 +578,103 @@ def main():
         last_debugger_output = dbg(input_value)
         send_output_command(f"\n{last_debugger_output}\n")
 
-        send_output_command(f"\nThinking...\n")
+        # send_output_command(f"\nWinDbg Copilot:\n")
 
-        def SendCommandThread(last_debugger_output):
-            last_Copilot_output = SendCommand(last_debugger_output)
-            send_output_command(f"\n{last_Copilot_output}\n")
+        # def SendCommandThread(last_debugger_output):
+        #     last_Copilot_output = SendCommand(last_debugger_output)
+        #     send_output_command(f"\n{last_Copilot_output}\n")
 
-        thread = threading.Thread(target=SendCommandThread, args=(last_debugger_output,))
-        thread.start()
-        threads.append(thread)
+        # thread = threading.Thread(target=SendCommandThread, args=(last_debugger_output,))
+        # thread.start()
+        # threads.append(thread)
 
         command_entry.delete(0, 'end')  # clear the entry field
 
+    import webbrowser
+
     # Define function to send output to text widget
     def send_output_command(output):
+        command_text.config(state="normal")
         command_text.insert(tk.END, output)
-        command_text.see(tk.END)
 
-    disclaimer = """Disclaimer: WinDbg Copilot
+        # Find URLs in the output string and replace them with clickable hyperlinks
+        url_regex = re.compile(r'(https?://\S+)')
+        for i, match in enumerate(url_regex.findall(output)):
+            tag_name = f'url_{i}'
+            start = command_text.search(match, '1.0', tk.END)
+            end = f'{start}+{len(match)}c'
+            command_text.tag_add(tag_name, start, end)
+            command_text.tag_bind(tag_name, '<Button-1>', lambda e, url=match: webbrowser.open(url))
+            # Configure the tag to make it look like a link
+            command_text.tag_config(tag_name, foreground='blue', underline=True)
+            # set the cursor to be an hand when hovering over the tag
+            command_text.tag_bind(tag_name, '<Enter>', lambda e: command_text.config(cursor='hand2'))
+            # set the cursor back to normal when not hovering over the tag
+            command_text.tag_bind(tag_name, '<Leave>', lambda e: command_text.config(cursor=''))
+
+        command_text.see(tk.END)
+        command_text.config(state="disabled")
+
+    disclaimer = """Windbg Copilot is a ChatGPT powered AI assistant integrated with Windbg. It analyzes the output of the commands, and provides guidance to solve the stated problem.
+
+Project Site: https://aka.ms/mmm2
+
+Settings
+
+1. OpenAI API: https://help.openai.com/en/articles/4936850-where-do-i-find-my-secret-api-key
+
+If you want to use OpenAI API, add environment variable:
+
+OPENAI_API_KEY = <OpenAI API Key>
+
+2. Azure OpenAI: https://learn.microsoft.com/en-us/azure/ai-services/openai/quickstart?tabs=command-line&pivots=programming-language-python 
+
+If you want to use Azure OpenAI, add the following environment variables:
+
+AZURE_OPENAI_ENDPOINT = <Azure OpenAI Endpoint>
+AZURE_OPENAI_KEY = <Azure OpenAI Key>
+AZURE_OPENAI_DEPLOYMENT = <Azure OpenAI Deployment Name>
+
+3. Debugging Tools for Windows WinDbg (classic): Installed on your machine. Download URL: https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/debugger-download-tools
+
+After you installed WinDbg, add the following environment variables:
+
+WinDbg_PATH = <WinDbg Installation Path>
+_NT_SYMBOL_PATH = srv*c:\symbols*https://msdl.microsoft.com/download/symbols
+
+WinDbg Copilot GUI App
+
+Welcome to the WinDbg Copilot GUI App - your go-to solution for an enhanced debugging experience powered by AI!
+
+New Feature: Tab Widget
+
+We have introduced a tab widget to the GUI application:
+
+1. Auto Tab: Users provide a problem description, AI assistant guides the debugging process until no more suggestions or solution has been found.
+2. Chat Tab: A unique interactive experience for more advanced users with existing WinDbg and debugging skills. Users can talk freely with the AI assistant, ask any debugging questions, and the AI assistant will reply with simple answers and provide an executable command. Users can execute the suggested command in the command window, and the AI assistant will process the WinDbg output and reply with further instructions.
+
+Overview
+
+The WinDbg Copilot GUI App seamlessly blends the power of WinDbg with the intelligence of OpenAI, providing you with intelligent suggestions throughout your debugging session. With configurable settings, support for various file types, an integrated AI assistant, and the newly added tab widget, this app takes debugging to a whole new level.
+
+Features
+
+1. Configurable Settings Menu: Tailor the app to your needs through a user-friendly settings menu.
+2. File Support: Open local memory dump files or time travel trace files directly within the app.
+3. Remote Debugger Connection: Need to debug remotely? Connect effortlessly to a remote debugger from within the app.
+4. Integrated WinDbg Command Window: Positioned on the left side of the app; View debugger outputs conveniently in a dedicated text widget; Enter your debug commands in an entry widget located just below the display.
+5. AI-Powered Assistant with Tab Widget: Now enjoy the flexibility of Auto and Chat tabs for different debugging experiences.
+
+How It Works
+
+1. Begin by entering a problem description in the AI assistant window.
+2. Send this description to OpenAI via the app.
+3. Receive a suggested debug command from OpenAI, presented as a clickable link.
+4. Click on the suggestion to execute it in the WinDbg command window.
+5. View the debugger output and await further suggestions from the AI assistant.
+6. Continue this interactive process until you receive no more suggestions or until your problem is resolved.
+
+Disclaimer: WinDbg Copilot
 
 WinDbg Copilot is an application designed for debugging learning purposes only. It is important to note that this application should not be used to load or handle any customer data. WinDbg Copilot is intended solely for the purpose of providing a platform for debugging practice and learning experiences.
 
@@ -776,7 +686,9 @@ By using WinDbg Copilot, you acknowledge and agree that any debugging input and 
 
 Please ensure that you exercise caution and adhere to best practices when utilizing WinDbg Copilot to ensure the privacy and security of your own data. WinDbg Copilot project will not be held liable for any damages, losses, or unauthorized access resulting from the misuse of this application.
 
-By proceeding to use WinDbg Copilot, you signify your understanding and acceptance of these terms and conditions."""
+By proceeding to use WinDbg Copilot, you signify your understanding and acceptance of these terms and conditions.
+
+"""
     send_output_command(disclaimer)
 
     def ai_assistant(last_Copilot_output):
@@ -793,13 +705,13 @@ By proceeding to use WinDbg Copilot, you signify your understanding and acceptan
                     last_debugger_output = dbg(link_text)
                     send_output_command(f"\n{last_debugger_output}\n")
 
-                    send_output_auto("\nThinking...\n")
+                    send_output_auto("\nWinDbg Copilot:\n")
 
                     if last_debugger_output == "timeout":
                         print(match+" timeout")
 
                     def SendCommandThread(last_debugger_output):
-                        last_Copilot_output = SendCommand(last_debugger_output)
+                        last_Copilot_output = SendCommand(last_debugger_output,'auto')
                         send_output_auto(f"\n{last_Copilot_output}\n")
                         ai_assistant(last_Copilot_output)
 
@@ -814,6 +726,9 @@ By proceeding to use WinDbg Copilot, you signify your understanding and acceptan
 
                 def on_link_leave(event):
                     auto_text.config(cursor="arrow")
+
+                # set auto_text state to normal
+                auto_text.config(state=tk.NORMAL)
 
                 # Insert some text
                 auto_text.insert(tk.END, "\nClick on the link: ")
@@ -833,6 +748,8 @@ By proceeding to use WinDbg Copilot, you signify your understanding and acceptan
                 # Bind the enter and leave events for changing the cursor
                 auto_text.tag_bind(tag_name, "<Enter>", on_link_enter)
                 auto_text.tag_bind(tag_name, "<Leave>", on_link_leave)
+                # set auto_text state to disabled
+                auto_text.config(state=tk.DISABLED)
                 link_num += 1
         else:
             print("\nNo more command suggested.")
@@ -840,13 +757,13 @@ By proceeding to use WinDbg Copilot, you signify your understanding and acceptan
 
     # Define function to get input from Entry widget
     def get_input_auto(event):
-        send_output_auto(f"\nThinking...\n")
+        send_output_auto(f"\nWinDbg Copilot:\n")
         # read_config()
         user_input = auto_entry.get()
         log_thread("Problem description:"+user_input)
 
         def SendCommandThread(user_input):
-            last_Copilot_output = SendCommand(user_input)
+            last_Copilot_output = SendCommand(user_input, 'auto')
             send_output_auto(f"\n{last_Copilot_output}\n")
             ai_assistant(last_Copilot_output)
         thread = threading.Thread(target=SendCommandThread, args=(user_input,))
@@ -862,19 +779,24 @@ By proceeding to use WinDbg Copilot, you signify your understanding and acceptan
 
     # Define function to send output to text widget
     def send_output_auto(output):
+        auto_text.config(state="normal")
         auto_text.insert(tk.END, output)
         auto_text.see(tk.END)
+        auto_text.config(state="disabled")
 
     # Define function to get input from Entry widget
     def get_input_chat(event):
         # read_config()
         user_input = chat_entry.get()
+        send_output_chat(f"\nUser:\n")
         send_output_chat(f"\n{user_input}\n")
         log_thread("User Input:"+user_input)
-        send_output_chat(f"\nThinking...\n")
+        send_output_chat(f"\nWinDbg Copilot:\n")
         def SendCommandThread(user_input):
-            last_Copilot_output = SendCommand(user_input)
-            send_output_chat(f"\n{last_Copilot_output}\n")
+            send_output_chat('\n')
+            last_Copilot_output = SendCommand(user_input, 'chat')
+            send_output_chat('\n')
+            # send_output_chat(f"\n{last_Copilot_output}\n")
         thread = threading.Thread(target=SendCommandThread, args=(user_input,))
         thread.start()
         threads.append(thread)
@@ -885,10 +807,12 @@ By proceeding to use WinDbg Copilot, you signify your understanding and acceptan
         # send_output_auto(f"{last_Copilot_output}\n")
         chat_entry.delete(0, 'end')  # clear the entry field
 
-    # Define function to send output to text widget
-    def send_output_chat(output):
-        chat_output_text.insert(tk.END, output)
-        chat_output_text.see(tk.END)
+    # # Define function to send output to text widget
+    # def send_output_chat(output):
+    #     chat_output_text.config(state="normal")
+    #     chat_output_text.insert(tk.END, output)
+    #     chat_output_text.see(tk.END)
+    #     chat_output_text.config(state="disabled")        
 
     # Bind Return key to get_input
     command_entry.bind('<Return>', get_input_command)
@@ -975,6 +899,26 @@ For more information, see https://aka.ms/windbgremote"""
     file_menu.add_command(label="Open dump/trace file", command=open_file)
     file_menu.add_command(label="Connect to remote debugger", command=remote_debugging)
     menubar.add_command(label="Settings", command=lambda: create_settings_window(root))
+
+    # Add a Copilot menu to the right click menu
+    def popup(event):
+        popup_menu.post(event.x_root, event.y_root)
+
+    popup_menu = Menu(root, tearoff=0)
+    popup_menu.add_command(label="Copy", command=lambda: root.focus_get().event_generate('<<Copy>>'))
+    popup_menu.add_command(label="Cut", command=lambda: root.focus_get().event_generate('<<Cut>>'))
+    popup_menu.add_command(label="Paste", command=lambda: root.focus_get().event_generate('<<Paste>>'))
+    popup_menu.add_separator()
+    popup_menu.add_command(label="Select All", command=lambda: root.focus_get().event_generate('<<SelectAll>>'))
+    popup_menu.add_separator()
+    popup_menu.add_command(label="Settings", command=lambda: create_settings_window(root))
+
+    # Bind the right click event to the popup menu
+    root.bind("<Button-3>", popup)
+
+    # Create a label for the status bar
+    status_bar = ttk.Label(root, text="Ready", anchor=tk.W)
+    status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
     def create_entry(window, row, env_variable, label_text):
         label = ttk.Label(window, text=label_text)
